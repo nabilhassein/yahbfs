@@ -116,7 +116,7 @@ main = do
     [filename] -> do
       program <- readFile filename
       execute (readProgram program) initialMemory
-    _ -> putStrLn "You must supply the name of a brainfuck file to execute"
+    _ -> putStrLn "Usage: runhaskell brainfuck.hs [brainfuck file]"
 
   where readProgram :: String -> Program
         readProgram (i:is) = ("", i, is) -- 1st command in focus, others in list
