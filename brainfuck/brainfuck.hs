@@ -8,13 +8,13 @@ import System.Environment (getArgs)
 -- see http://learnyouahaskell.com/zippers
 type Zipper a = ([a], a, [a])
 
-goRight :: Zipper a -> Zipper a
-goRight (ls, x, r:rs) = (x:ls, r, rs)
-goRight (_,  _, []  ) = error "illegal: cannot go right past end of program"
+goRight :: Zipper a ->     Zipper a
+goRight    (ls, x, r:rs) = (x:ls, r, rs)
+goRight    (_,  _, []  ) = error "illegal: cannot go right past end of program"
 
-goLeft :: Zipper a -> Zipper a
-goLeft (l:ls, x, rs) = (ls, l, x:rs)
-goLeft ([]  , _, _ ) = error "illegal: cannot go left past cell 0"
+goLeft :: Zipper a ->     Zipper a
+goLeft    (l:ls, x, rs) = (ls, l, x:rs)
+goLeft    ([]  , _, _ ) = error "illegal: cannot go left past cell 0"
 
 -- from Wikipedia: https://en.wikipedia.org/wiki/Brainfuck
 -- "The brainfuck language uses a simple machine model consisting of the program
@@ -39,38 +39,37 @@ decrementDataPointer :: Memory -> Memory
 decrementDataPointer = goLeft
 
 -- (+): increment the byte at the data pointer
-increment :: Memory -> Memory
-increment (ls, x, rs) = (ls, x+1, rs)
+incrementByte :: Memory ->     Memory
+incrementByte    (ls, x, rs) = (ls, x+1, rs)
 
 -- (-): decrement the byte at the data pointer.
-decrement :: Memory -> Memory
-decrement (ls, x, rs) = (ls, x-1, rs)
+decrementByte :: Memory ->     Memory
+decrementByte    (ls, x, rs) = (ls, x-1, rs)
 
 -- (.): output the byte at the data pointer.
-output :: Memory -> IO ()
-output (_, x, _) = print . chr . fromEnum $ x
+output :: Memory ->   IO ()
+output    (_, x, _) = print . chr . fromEnum $ x
 
 -- (,): accept 1 byte of input; store its value in the byte at the data pointer
-input :: Memory -> IO Memory
-input (ls, _, rs) = do
-  c <- getChar
-  let byte :: Word8
-      byte = toEnum $ ord c
-  return (ls, byte, rs)
+input :: Memory ->    IO Memory
+input   (ls, _, rs) = do c <- getChar
+                         let byte :: Word8
+                             byte = toEnum $ ord c
+                         return (ls, byte, rs)
 
 -- ([): If the byte at the data pointer (i.e. the focus of the Memory zipper) is
 -- zero, then this function jumps the instruction pointer (i.e. the focus of the
 -- Program zipper) FORWARD to the command after the matching ']' command.
 -- If the byte at the data pointer is nonzero, then this function simply
 -- increments the instruction pointer forward to the command.
-lb :: Program -> Memory -> Program
-lb program (_, x, _) = case x of 0 -> jumpPast ']' program
-                                 _ -> goRight program
-  where jumpPast :: Char -> Program -> Program
-        jumpPast c      (_, _, [] ) = error (c:" was not found in program")
-        jumpPast c prog@(_, _, r:_) = if r == c
-                                      then goRight (goRight prog)
-                                      else jumpPast c (goRight prog)
+lb :: Program -> Memory ->   Program
+lb    program    (_, x, _) = case x of 0 -> jumpPast ']' program
+                                       _ -> goRight program
+  where jumpPast :: Char -> Program ->         Program
+        jumpPast    c            (_, _, [] ) = error (c:" not found in program")
+        jumpPast    c       prog@(_, _, r:_) = if r == c
+                                               then goRight (goRight prog)
+                                               else jumpPast c (goRight prog)
 
 -- (]): If the byte at the data pointer (i.e. the focus of the Memory zipper) is
 -- zero, then this function simply increments the instruction pointer (i.e. the
@@ -78,27 +77,28 @@ lb program (_, x, _) = case x of 0 -> jumpPast ']' program
 -- If the byte at the data pointer is nonzero then instead of moving the
 -- instruction pointer forward to the next command, this function jumps the
 -- instruction pointer BACK to the command after the matching '[' command.
-rb :: Program -> Memory -> Program
-rb program (_, x, _) = case x of 0 -> goRight program
-                                 _ -> jumpBackTo '[' program
-  where jumpBackTo :: Char -> Program -> Program
-        jumpBackTo c      ([] , _, _) = error (c:" was not found in program")
-        jumpBackTo c prog@(l:_, _, _) = if l == c
-                                        then prog
-                                        else jumpBackTo c (goLeft prog)
+rb :: Program -> Memory ->   Program
+rb    program    (_, x, _) = case x of 0 -> goRight program
+                                       _ -> jumpBack '[' program
+  where jumpBack :: Char -> Program ->         Program
+        jumpBack    c            ([] , _, _) = error (c:" not found in program")
+        jumpBack    c       prog@(l:_, _, _) = if l == c
+                                               then prog
+                                               else jumpBack c (goLeft prog)
 
 
 -- done implementing brainfuck commands; this is the heart of the interpreter
-execute :: Program          -> Memory -> IO ()
+execute :: Program ->          Memory -> IO ()
 execute            (_, _, [] ) _       = return () -- no more instructions; end
 execute    program@(_, i, _:_) memory  =
   let step :: (Memory -> Memory) -> Program -> Memory -> IO ()
-      step f prog mem = execute (goRight prog) (f mem)
+      step    update                prog       mem     = execute (goRight prog)
+                                                                 (update mem)
   in case i of
     '>' -> step incrementDataPointer program memory
     '<' -> step decrementDataPointer program memory
-    '+' -> step increment            program memory
-    '-' -> step decrement            program memory
+    '+' -> step incrementByte        program memory
+    '-' -> step decrementByte        program memory
     '.' -> output memory >> step id  program memory
     ',' -> input memory >>= execute (goRight program)
     '[' -> execute (lb program memory) memory
@@ -106,20 +106,21 @@ execute    program@(_, i, _:_) memory  =
     _   -> step id program memory -- any other byte is a comment/no-op
 
 
--- this program can do just one thing: reads a filename as an argument,
+-- this program can do just one thing: read a filename as an argument,
 -- interpret that file's contents as a brainfuck program, and execute it
+-- all command line arguments except the first are ignored
 main :: IO ()
 main = do
   args <- getArgs
   case args of
-    [filename] -> do
+    [] -> putStrLn "Usage: runhaskell brainfuck.hs [brainfuck source file]"
+    filename:_ -> do
       program <- readFile filename
       execute (readProgram program) initialMemory
-    _ -> putStrLn "Usage: runhaskell brainfuck.hs [brainfuck file]"
 
   where readProgram :: String -> Program
-        readProgram (i:is) = (""       , i        , is)
-        readProgram ""     = (undefined, undefined, "") -- no-op
+        readProgram (i:is)     = (""       , i        , is)
+        readProgram ""         = (undefined, undefined, "") -- no-op
 
         initialMemory :: Memory
         initialMemory = ([], 0, repeat 0) -- infinite Zipper of zeroes
