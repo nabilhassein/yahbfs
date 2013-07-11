@@ -25,11 +25,11 @@ goLeft ([]  , _, _ ) = error "illegal: cannot go left past cell 0"
 -- the ASCII character encoding)."
 
 -- a Zipper is very natural model for the instruction and data pointers:
--- the current instruction or byte respectively is the focus, which is movable
+-- the current instruction or byte respectively is the focus
 type Program  = Zipper Char
 type Memory   = Zipper Word8
 
--- below follow the eight legal operations of the language
+-- below follow the eight commands of the brainfuck language
 -- (>): increment the data pointer (to point to the next cell to the right)
 incrementDataPointer :: Memory -> Memory
 incrementDataPointer = goRight
@@ -88,9 +88,10 @@ rb program (_, x, _) = case x of 0 -> goRight program
                                         else jumpBackTo c (goLeft prog)
 
 
--- having described all brainfuck commands, we reach the heart of the interpreter
-execute :: Program -> Memory -> IO ()
-execute program@(_, i, is) memory =
+-- done implementing brainfuck commands; this is the heart of the interpreter
+execute :: Program          -> Memory -> IO ()
+execute            (_, _, [] ) _       = return () -- no more instructions; end
+execute    program@(_, i, _:_) memory  =
   let step :: (Memory -> Memory) -> Program -> Memory -> IO ()
       step f prog mem = execute (goRight prog) (f mem)
   in case i of
@@ -102,13 +103,11 @@ execute program@(_, i, is) memory =
     ',' -> input memory >>= execute (goRight program)
     '[' -> execute (lb program memory) memory
     ']' -> execute (rb program memory) memory
-    _   -> case is of
-      _:_ -> step id program memory -- other byte is a comment/no-op
-      []  -> return () -- if there are no instructions left to execute, terminate
+    _   -> step id program memory -- any other byte is a comment/no-op
 
 
 -- this program can do just one thing: reads a filename as an argument,
--- interpret its contents as a brainfuck program, and execute the program
+-- interpret that file's contents as a brainfuck program, and execute it
 main :: IO ()
 main = do
   args <- getArgs
@@ -119,8 +118,8 @@ main = do
     _ -> putStrLn "Usage: runhaskell brainfuck.hs [brainfuck file]"
 
   where readProgram :: String -> Program
-        readProgram (i:is) = ("", i, is) -- 1st command in focus, others in list
-        readProgram ""     = ("", '\0', "") -- no-op
+        readProgram (i:is) = (""       , i        , is)
+        readProgram ""     = (undefined, undefined, "") -- no-op
 
         initialMemory :: Memory
         initialMemory = ([], 0, repeat 0) -- infinite Zipper of zeroes
