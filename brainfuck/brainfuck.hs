@@ -67,7 +67,7 @@ lb :: Program -> Memory -> Program
 lb program (_, x, _) = case x of 0 -> jumpPast ']' program
                                  _ -> goRight program
   where jumpPast :: Char -> Program -> Program
-        jumpPast c (_, _, [])       = error (c:" was not found in program")
+        jumpPast c      (_, _, [] ) = error (c:" was not found in program")
         jumpPast c prog@(_, _, r:_) = if r == c
                                       then goRight (goRight prog)
                                       else jumpPast c (goRight prog)
@@ -82,9 +82,9 @@ rb :: Program -> Memory -> Program
 rb program (_, x, _) = case x of 0 -> goRight program
                                  _ -> jumpBackTo '[' program
   where jumpBackTo :: Char -> Program -> Program
-        jumpBackTo c ([], _, _)       = error (c:" was not found in program")
+        jumpBackTo c      ([] , _, _) = error (c:" was not found in program")
         jumpBackTo c prog@(l:_, _, _) = if l == c
-                                        then goLeft (goLeft prog)
+                                        then prog
                                         else jumpBackTo c (goLeft prog)
 
 
@@ -107,7 +107,7 @@ execute program@(_, i, is) memory =
       []  -> return () -- if there are no instructions left to execute, terminate
 
 
--- this program can only one thing: read a filename as an argument,
+-- this program can do just one thing: reads a filename as an argument,
 -- interpret its contents as a brainfuck program, and execute the program
 main :: IO ()
 main = do
