@@ -40,15 +40,15 @@ decrementDataPointer = goLeft
 
 -- (+): increment the byte at the data pointer
 incrementByte :: Memory ->     Memory
-incrementByte    (ls, x, rs) = (ls, x+1, rs)
+incrementByte    (ls, b, rs) = (ls, b+1, rs)
 
--- (-): decrement the byte at the data pointer.
+-- (-): decrement the byte at the data pointer
 decrementByte :: Memory ->     Memory
-decrementByte    (ls, x, rs) = (ls, x-1, rs)
+decrementByte    (ls, b, rs) = (ls, b-1, rs)
 
 -- (.): output the byte at the data pointer.
 output :: Memory ->   IO ()
-output    (_, x, _) = print . chr . fromEnum $ x
+output    (_, b, _) = print . chr . fromEnum $ b
 
 -- (,): accept 1 byte of input; store its value in the byte at the data pointer
 input :: Memory ->    IO Memory
@@ -120,7 +120,7 @@ main = do
 
   where readProgram :: String -> Program
         readProgram ""         = (undefined, undefined, []) -- no-op
-        readProgram (i:is)     = (""       , i        , is)
+        readProgram (i:is)     = (""       , i        , is ++ ['\0'])
 
         initialMemory :: Memory
         initialMemory = ([], 0, repeat 0) -- infinite Zipper of zeroes
