@@ -119,8 +119,8 @@ main = do
       execute (readProgram program) initialMemory
 
   where readProgram :: String -> Program
+        readProgram ""         = (undefined, undefined, []) -- no-op
         readProgram (i:is)     = (""       , i        , is)
-        readProgram ""         = (undefined, undefined, "") -- no-op
 
         initialMemory :: Memory
         initialMemory = ([], 0, repeat 0) -- infinite Zipper of zeroes
