@@ -1,8 +1,7 @@
 module Brainfuck where
 
-import Data.Char (ord)
+import Data.Char (ord, chr)
 import Data.Word (Word8)
-
 
 type Zipper a = ([a], a, [a])
 
@@ -17,10 +16,6 @@ goLeft ([]  , _, _ ) = error "illegal: cannot go left past cell 0"
 
 type Program  = Zipper Char
 type Memory   = Zipper Word8
-
-initialMemory :: Memory
-initialMemory = ([], 0, repeat 0)
-
 
 -- (>): increment the data pointer (to point to the next cell to the right)
 incrementDataPointer :: Memory -> Memory
@@ -40,14 +35,14 @@ decrement (ls, x, rs) = (ls, x-1, rs)
 
 -- (.): output the byte at the data pointer.
 output :: Memory -> IO ()
-output (_, x, _) = print x
+output (_, x, _) = print . chr . fromEnum $ x
 
 -- (,): accept 1 byte of input; store its value in the byte at the data pointer
 input :: Memory -> IO Memory
 input (ls, _, rs) = do
-  char <- getChar
+  c <- getChar
   let byte :: Word8
-      byte = toEnum $ ord char
+      byte = toEnum $ ord c
   return (ls, byte, rs)
 
 -- ([): If the byte at the data pointer (i.e. the focus of the Memory zipper) is
@@ -58,10 +53,10 @@ input (ls, _, rs) = do
 lb :: Program -> Memory -> Program
 lb program (_, 0, _) = jumpPast ']' program
   where jumpPast :: Char -> Program -> Program
-        jumpPast char (_, _, [])       = error (char:" not found in program")
-        jumpPast char prog@(_, _, r:_) = if r == char
-                                         then goRight (goRight prog)
-                                         else jumpPast char (goRight prog)
+        jumpPast c (_, _, [])       = error (c:" was not found in program")
+        jumpPast c prog@(_, _, r:_) = if r == c
+                                      then goRight (goRight prog)
+                                      else jumpPast c (goRight prog)
 
 lb program _         = goRight program
 
@@ -75,7 +70,36 @@ rb :: Program -> Memory -> Program
 rb program (_, 0, _) = goRight program
 rb program _         = jumpBackTo '[' program
   where jumpBackTo :: Char -> Program -> Program
-        jumpBackTo char ([], _, _)       = error (char:" not found in program")
-        jumpBackTo char prog@(l:_, _, _) = if l == char
-                                           then goLeft (goLeft prog)
-                                           else jumpBackTo char (goLeft prog)
+        jumpBackTo c ([], _, _)       = error (c:" was not found in program")
+        jumpBackTo c prog@(l:_, _, _) = if l == c
+                                        then goLeft (goLeft prog)
+                                        else jumpBackTo c (goLeft prog)
+
+
+readProgram :: String -> Program
+readProgram (i:is) = ("", i, is)
+readProgram ""     = ("", '\0', "") -- no-op
+
+initialMemory :: Memory
+initialMemory = ([], 0, repeat 0)
+
+
+execute :: (Program, Memory) -> IO ()
+execute (program@(_, i, is), memory) = case i of
+  '>' -> execute (goRight program, incrementDataPointer memory)
+  '<' -> execute (goRight program, decrementDataPointer memory)
+  '+' -> execute (goRight program, increment memory)
+  '-' -> execute (goRight program, decrement memory)
+  '.' -> output memory >> execute (goRight program, memory)
+  ',' -> input memory >>= \newMemory -> execute (goRight program, newMemory)
+  '[' -> execute (lb program memory, memory)
+  ']' -> execute (rb program memory, memory)
+  _   -> case is of
+    _:_ -> execute (goRight program, memory)
+    []  -> return ()
+
+main :: IO ()
+main = do
+  text <- readFile "test.bf"
+  let program = readProgram text
+  execute (program, initialMemory)
