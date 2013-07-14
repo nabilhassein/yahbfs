@@ -80,8 +80,9 @@ leftBracket    (_, x, _) program  = case x of 0 -> jumpPast ']' program
 -- instruction pointer forward to the next command, this function jumps the
 -- instruction pointer BACK to the command after the matching '[' command.
 rightBracket :: Memory -> Program -> Either String Program
-rightBracket    (_, x, _) program  = case x of 0 -> goRight program
-                                               _ -> jumpBack '[' program
+rightBracket    (_, x, _) program  = case x of
+  0 -> goRight program
+  _ -> jumpBack '[' program
   where jumpBack :: Char -> Program ->         Either String Program
         jumpBack    c            ([] , _, _) = Left $ "Illegal program: \
                                                       \ missing " ++ [c]
@@ -119,12 +120,24 @@ execute    memory    program@(_, i, _:_) =
                 Left  s -> return s
                 Right p -> execute m p
     '[' -> case leftBracket memory program of
-      Left  s -> return s
-      Right p -> execute memory p
+             Left  s -> return s
+             Right p -> execute memory p
     ']' -> case rightBracket memory program of
-      Left  s -> return s
-      Right p -> execute memory p
+             Left  s -> return s
+             Right p -> execute memory p
     _   -> step id memory program -- any other byte is a comment/no-op
+
+
+-- for convenience
+readProgram :: String -> Program
+readProgram []         = ([], '\0', []        ) -- no-op
+readProgram (i:is)     = ([], i   , is ++ "\0")
+
+initialMemory :: Memory
+initialMemory = ([], 0, repeat 0) -- infinite Zipper of zeroes
+
+test :: String -> IO String
+test program = execute initialMemory (readProgram program)
 
 
 -- this program can do just one thing: read a filename as an argument,
@@ -138,10 +151,3 @@ main = do
     filename : _ -> do
       program <- readFile filename
       execute initialMemory (readProgram program)
-
-  where readProgram :: String -> Program
-        readProgram []         = ([], '\0', []          ) -- no-op
-        readProgram (i:is)     = ([], i   , is ++ ['\0'])
-
-        initialMemory :: Memory
-        initialMemory = ([], 0, repeat 0) -- infinite Zipper of zeroes
