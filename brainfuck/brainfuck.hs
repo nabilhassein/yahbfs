@@ -95,37 +95,23 @@ rightBracket    (_, x, _) program  = case x of
 execute :: Memory -> Program ->            IO String
 execute    _         (_, _, [] )         = return "" --no more instructions; end
 execute    memory    program@(_, i, _:_) =
-  let step :: (Memory -> Memory) -> Memory -> Program -> IO String
-      step    update                mem       prog       = case goRight prog of
-          Left  s -> return s
-          Right p -> execute (update mem) p
-
-      newstep :: (Memory -> Either String Memory) -> Memory -> Program ->
-        IO String
-      newstep    update                              mem       prog =
-        case update mem of
-          Left  s -> return s
-          Right m -> case goRight prog of
-            Left  e -> return e
-            Right p -> execute m p
+  let step :: (Program -> Either String Program) ->
+              (Memory -> Either String Memory) -> Memory -> Program -> IO String
+      step updateProgram updateMemory m p = case updateMemory m of
+        Left  s  -> return s
+        Right m' -> either return (execute m') (updateProgram p)
 
   in case i of
-    '>' -> newstep incrementDataPointer memory program
-    '<' -> newstep decrementDataPointer memory program
-    '+' -> step    incrementByte        memory program
-    '-' -> step    decrementByte        memory program
-    '.' -> output memory >> step id     memory program
-    ',' -> do m <- input memory
-              case goRight program of
-                Left  s -> return s
-                Right p -> execute m p
-    '[' -> case leftBracket memory program of
-             Left  s -> return s
-             Right p -> execute memory p
-    ']' -> case rightBracket memory program of
-             Left  s -> return s
-             Right p -> execute memory p
-    _   -> step id memory program -- any other byte is a comment/no-op
+    '>' -> step goRight incrementDataPointer     memory program
+    '<' -> step goRight decrementDataPointer     memory program
+    '+' -> step goRight (return . incrementByte) memory program
+    '-' -> step goRight (return . decrementByte) memory program
+    '.' -> output memory >>  step goRight return memory program
+    ',' -> do newMemory <- input memory
+              step goRight return newMemory program
+    '[' -> step (leftBracket  memory) return memory program
+    ']' -> step (rightBracket memory) return memory program
+    _   -> step goRight return memory program
 
 
 -- for convenience
@@ -134,10 +120,10 @@ readProgram []         = ([], '\0', []        ) -- no-op
 readProgram (i:is)     = ([], i   , is ++ "\0")
 
 initialMemory :: Memory
-initialMemory = ([], 0, repeat 0) -- infinite Zipper of zeroes
+initialMemory = ([], 0, repeat 0)
 
 test :: String -> IO String
-test program = execute initialMemory (readProgram program)
+test = execute initialMemory . readProgram
 
 
 -- this program can do just one thing: read a filename as an argument,
