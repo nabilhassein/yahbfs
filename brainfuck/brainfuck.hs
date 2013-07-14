@@ -1,6 +1,5 @@
 module Brainfuck where
 
-import Control.Monad.Error () -- instance Monad Either e
 import Data.Char           (ord, chr)
 import Data.Word           (Word8)
 import System.Environment  (getArgs)
@@ -93,27 +92,32 @@ rightBracket    (_, x, _) program  = case x of
 
 -- done implementing brainfuck commands; this is the heart of the interpreter
 execute :: Memory -> Program ->            IO String
-execute    _         (_, _, [] )         = return "" --no more instructions; end
+execute    _         (_, _, [] )         = return "" -- end of program
 execute    memory    program@(_, i, _:_) =
-  let step :: (Program -> Either String Program) -> Program ->
-              (Memory  -> Either String Memory ) -> Memory -> IO String
-      step updateProgram p updateMemory m = case updateMemory m of
+  let step :: (Memory  -> Either String Memory ) -> Memory  ->
+              (Program -> Either String Program) -> Program -> IO String
+      step updateMemory m updateProgram p = case updateMemory m of
         Left  s  -> return s
         Right m' -> either return (execute m') (updateProgram p)
 
   in case i of
-    '>' -> step goRight program incrementDataPointer     memory
-    '<' -> step goRight program decrementDataPointer     memory
-    '+' -> step goRight program (return . incrementByte) memory
-    '-' -> step goRight program (return . decrementByte) memory
-    '.' -> output memory >>  step goRight program return memory
-    ',' -> input  memory >>= step goRight program return
-    '[' -> step (leftBracket  memory) program return memory
-    ']' -> step (rightBracket memory) program return memory
-    _   -> step goRight program return memory
+    '>' -> step incrementDataPointer     memory    goRight               program
+    '<' -> step decrementDataPointer     memory    goRight               program
+    '+' -> step (return . incrementByte) memory    goRight               program
+    '-' -> step (return . decrementByte) memory    goRight               program
+    '.' -> output memory >>
+           step return                   memory    goRight               program
+    ',' -> input memory >>= \newMemory ->
+           step return                   newMemory goRight               program
+    '[' -> step return                   memory    (leftBracket  memory) program
+    ']' -> step return                   memory    (rightBracket memory) program
+    _   -> step return                   memory    goRight               program
 
 
--- for convenience
+-- In `execute` above, end of program is signified by an empty list to the right
+-- of the focus of the Zipper. But the focus is the current instruction, which
+-- must be executed even if no instructions follow it. So in the second pattern,
+-- we add a dummy instruction to ensure we execute the final real instruction.
 readProgram :: String -> Program
 readProgram []         = ([], '\0', []        ) -- no-op
 readProgram (i:is)     = ([], i   , is ++ "\0")
@@ -121,18 +125,16 @@ readProgram (i:is)     = ([], i   , is ++ "\0")
 initialMemory :: Memory
 initialMemory = ([], 0, repeat 0)
 
-test :: String -> IO String
-test = execute initialMemory . readProgram
+run :: String -> IO String
+run = execute initialMemory . readProgram
 
 
--- this program can do just one thing: read a filename as an argument,
--- interpret that file's contents as a brainfuck program, and execute it
--- all command line arguments except the first are ignored
+-- This program can do just one thing: read a filename as an argument,
+-- interpret that file's contents as a brainfuck program, and execute it.
+-- All command line arguments except the first are ignored.
 main :: IO String
 main = do
   args <- getArgs
   case args of
-    [] -> return "Usage: runhaskell brainfuck.hs [brainfuck source file]"
-    filename : _ -> do
-      program <- readFile filename
-      execute initialMemory (readProgram program)
+    []         -> return "Usage: runhaskell brainfuck.hs [brainfuck source file]"
+    filename:_ -> readFile filename >>= run
