@@ -123,7 +123,7 @@ For this I used a really cool data structure called a *zipper*.
 They can be used not only for keeping a "context" or "location" within a list,
 but also within more complex structures such as trees.
 
-```
+```haskell
 type Zipper a = ([a], a, [a])
 
 goRight :: Zipper a ->     Zipper a
