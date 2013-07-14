@@ -95,23 +95,22 @@ rightBracket    (_, x, _) program  = case x of
 execute :: Memory -> Program ->            IO String
 execute    _         (_, _, [] )         = return "" --no more instructions; end
 execute    memory    program@(_, i, _:_) =
-  let step :: (Program -> Either String Program) ->
-              (Memory -> Either String Memory) -> Memory -> Program -> IO String
-      step updateProgram updateMemory m p = case updateMemory m of
+  let step :: (Program -> Either String Program) -> Program ->
+              (Memory  -> Either String Memory ) -> Memory -> IO String
+      step updateProgram p updateMemory m = case updateMemory m of
         Left  s  -> return s
         Right m' -> either return (execute m') (updateProgram p)
 
   in case i of
-    '>' -> step goRight incrementDataPointer     memory program
-    '<' -> step goRight decrementDataPointer     memory program
-    '+' -> step goRight (return . incrementByte) memory program
-    '-' -> step goRight (return . decrementByte) memory program
-    '.' -> output memory >>  step goRight return memory program
-    ',' -> do newMemory <- input memory
-              step goRight return newMemory program
-    '[' -> step (leftBracket  memory) return memory program
-    ']' -> step (rightBracket memory) return memory program
-    _   -> step goRight return memory program
+    '>' -> step goRight program incrementDataPointer     memory
+    '<' -> step goRight program decrementDataPointer     memory
+    '+' -> step goRight program (return . incrementByte) memory
+    '-' -> step goRight program (return . decrementByte) memory
+    '.' -> output memory >>  step goRight program return memory
+    ',' -> input  memory >>= step goRight program return
+    '[' -> step (leftBracket  memory) program return memory
+    ']' -> step (rightBracket memory) program return memory
+    _   -> step goRight program return memory
 
 
 -- for convenience
