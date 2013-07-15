@@ -129,9 +129,6 @@ run :: String -> IO String
 run = execute initialMemory . readProgram
 
 
--- This program can do just one thing: read a filename as an argument,
--- interpret that file's contents as a brainfuck program, and execute it.
--- All command line arguments except the first are ignored.
 main :: IO String
 main = do
   args <- getArgs
