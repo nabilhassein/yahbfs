@@ -47,25 +47,23 @@ incrementByte    (ls, b, rs) = (ls, b+1, rs)
 decrementByte :: Memory ->     Memory
 decrementByte    (ls, b, rs) = (ls, b-1, rs)
 
--- (.): output the byte at the data pointer.
+-- (.): output the byte at the data pointer
 output :: Memory ->   IO ()
 output    (_, b, _) = putChar . chr . fromEnum $ b
 
 -- (,): accept 1 byte of input; store its value in the byte at the data pointer
 input :: Memory ->    IO Memory
 input   (ls, _, rs) = do c <- getChar
-                         let byte :: Word8
-                             byte = toEnum $ ord c
-                         return (ls, byte, rs)
+                         return (ls, (toEnum . ord) c, rs)
 
 -- ([): If the byte at the data pointer (i.e. the focus of the Memory zipper) is
 -- zero, then this function jumps the instruction pointer (i.e. the focus of the
 -- Program zipper) FORWARD to the command after the matching ']' command.
 -- If the byte at the data pointer is nonzero, then this function simply
 -- increments the instruction pointer forward to the command.
-leftBracket :: Memory -> Program -> Either String Program
-leftBracket    (_, x, _) program  = case x of 0 -> jumpPast ']' program
-                                              _ -> goRight program
+jumpIfZero :: Memory -> Program -> Either String Program
+jumpIfZero    (_, x, _) program  = case x of 0 -> jumpPast ']' program
+                                             _ -> goRight program
   where jumpPast :: Char -> Program ->         Either String Program
         jumpPast    c            (_, _, [] ) = Left $ "Illegal program: \
                                                       \missing " ++ [c]
@@ -83,10 +81,9 @@ leftBracket    (_, x, _) program  = case x of 0 -> jumpPast ']' program
 -- it is possible to implement this behavior as an unconditional jump back to
 -- the corresponding left bracket; but then, if the byte at the data pointer is
 -- zero, the program will unnecessarily jump twice, which is inefficient
-rightBracket :: Memory -> Program -> Either String Program
-rightBracket    (_, x, _) program  = case x of
-  0 -> goRight program
-  _ -> jumpBack '[' program
+stepIfZero :: Memory -> Program -> Either String Program
+stepIfZero    (_, x, _) program  = case x of 0 -> goRight program
+                                             _ -> jumpBack '[' program
   where jumpBack :: Char -> Program ->         Either String Program
         jumpBack    c            ([] , _, _) = Left $ "Illegal program: \
                                                       \ missing " ++ [c]
@@ -97,7 +94,7 @@ rightBracket    (_, x, _) program  = case x of
 
 -- done implementing brainfuck commands; this is the heart of the interpreter
 execute :: Memory -> Program ->            IO (Maybe String)
-execute    _         (_, _, [] )         = return Nothing -- end of program
+execute    _                 (_, _, [] ) = return Nothing -- end legal program
 execute    memory    program@(_, i, _:_) =
   let step :: (Memory  -> Either String Memory ) -> Memory  ->
               (Program -> Either String Program) -> Program -> IO (Maybe String)
@@ -111,10 +108,10 @@ execute    memory    program@(_, i, _:_) =
     '-' -> step (return . decrementByte) memory    goRight               program
     '.' -> output memory >>
            step return                   memory    goRight               program
-    ',' -> input memory >>= \newMemory ->
+    ',' -> input memory >>= \ newMemory ->
            step return                   newMemory goRight               program
-    '[' -> step return                   memory    (leftBracket  memory) program
-    ']' -> step return                   memory    (rightBracket memory) program
+    '[' -> step return                   memory    (jumpIfZero  memory) program
+    ']' -> step return                   memory    (stepIfZero memory) program
     _   -> step return                   memory    goRight               program
 
 
