@@ -1,10 +1,8 @@
 module Brainfuck where
 -- see https://en.wikipedia.org/wiki/Brainfuck
 
-import Prelude hiding      (putStr)
-
 import Control.Monad.Error () -- instance Monad Either String
-import Data.ByteString     (hGet, putStr, singleton, unpack)
+import Data.ByteString     (hGet, hPutStr, singleton, unpack)
 import Data.List           (elemIndex)
 import Data.Word           (Word8)
 import System.IO           (hSetEncoding, latin1, stdin, stdout)
@@ -69,7 +67,7 @@ decrementByte    (ls, b, rs) = (ls, b-1, rs)
 
 -- (.): output the byte at the data pointer
 output :: Memory ->   IO ()
-output    (_, b, _) = putStr . singleton $ b
+output    (_, b, _) = hPutStr stdout . singleton $ b
 
 -- (,): accept 1 byte of input; store its value in the byte at the data pointer
 input :: Memory ->    IO Memory
@@ -78,6 +76,7 @@ input   (ls, _, rs) = hGet stdin 1 >>= \ b -> case unpack b of
   _      -> error "could not read a byte of input"
 
 -- not a brainfuck command; see usage in next two commands below
+-- see also readProgram, below
 readProgramErrorMessage :: String
 readProgramErrorMessage = "jump instruction blew up because of a bug \
                            \in readProgram: this should be impossible because \
@@ -125,7 +124,12 @@ execute :: Memory -> Program ->         IO (Maybe String)
 execute    _              (_, _, [] ) = return Nothing -- end legal program
 execute    mem       prog@(_, i, _:_) =
   -- At every step, try to update the memory. If that fails, pass the exception
-  -- to the user. If it succeeds, then update the program and continue execution
+  -- to the user. (The only possible failure is in decrementDataPointer: in many
+  -- programs which read input, it is impossible to perform a static check to
+  -- guarantee that the program does not attempt to move the data pointer left
+  -- past cell 0 of Memory. No other exception is possible; all other invalid
+  -- programs are rejected by readProgram, and will never be passed to execute.
+  -- If updating memory succeeds, then update the program and continue execution
   -- with the updated memory and program. (Note that, as explained in comments
   -- above, readProgram guarantees that our programs are well-formed, and
   -- updating a well-formed program cannot fail.)
@@ -191,6 +195,7 @@ run :: String -> IO (Maybe String)
 run = either (return . Just) (execute initialMemory) . readProgram
 
 
+--`hSetEncoding _ latin1` enforces that we accept only ASCII bytes, as specified
 main :: IO ()
 main = getArgs >>= \ args -> case args of
   []         -> putStrLn "Usage: runhaskell brainfuck.hs [brainfuck source file]"
