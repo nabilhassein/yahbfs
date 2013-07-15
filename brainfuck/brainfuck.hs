@@ -110,8 +110,8 @@ execute    memory    program@(_, i, _:_) =
            step return                   memory    goRight               program
     ',' -> input memory >>= \ newMemory ->
            step return                   newMemory goRight               program
-    '[' -> step return                   memory    (jumpIfZero  memory) program
-    ']' -> step return                   memory    (stepIfZero memory) program
+    '[' -> step return                   memory    (jumpIfZero memory)   program
+    ']' -> step return                   memory    (stepIfZero memory)   program
     _   -> step return                   memory    goRight               program
 
 
