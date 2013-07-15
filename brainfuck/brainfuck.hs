@@ -1,5 +1,6 @@
 module Brainfuck where
 
+import Control.Monad.Error () -- instance Monad Either String
 import Data.Char           (ord, chr)
 import Data.Word           (Word8)
 import System.Environment  (getArgs)
@@ -48,7 +49,7 @@ decrementByte    (ls, b, rs) = (ls, b-1, rs)
 
 -- (.): output the byte at the data pointer.
 output :: Memory ->   IO ()
-output    (_, b, _) = print . chr . fromEnum $ b
+output    (_, b, _) = putChar . chr . fromEnum $ b
 
 -- (,): accept 1 byte of input; store its value in the byte at the data pointer
 input :: Memory ->    IO Memory
@@ -132,9 +133,9 @@ run :: String -> IO String
 run = execute initialMemory . readProgram
 
 
-main :: IO String
+main :: IO ()
 main = do
   args <- getArgs
   case args of
-    []         -> return "Usage: runhaskell brainfuck.hs [brainfuck source file]"
-    filename:_ -> readFile filename >>= run
+    [] -> putStrLn "Usage: runhaskell brainfuck.hs [brainfuck source file]"
+    filename:_ -> readFile filename >>= run >> return ()
