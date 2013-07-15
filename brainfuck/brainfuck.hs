@@ -96,14 +96,14 @@ rightBracket    (_, x, _) program  = case x of
 
 
 -- done implementing brainfuck commands; this is the heart of the interpreter
-execute :: Memory -> Program ->            IO String
-execute    _         (_, _, [] )         = return "" -- end of program
+execute :: Memory -> Program ->            IO (Maybe String)
+execute    _         (_, _, [] )         = return Nothing -- end of program
 execute    memory    program@(_, i, _:_) =
   let step :: (Memory  -> Either String Memory ) -> Memory  ->
-              (Program -> Either String Program) -> Program -> IO String
+              (Program -> Either String Program) -> Program -> IO (Maybe String)
       step updateMemory m updateProgram p = case updateMemory m of
-        Left  s  -> return s
-        Right m' -> either return (execute m') (updateProgram p)
+        Left  s  -> return $ Just s
+        Right m' -> either (return . Just) (execute m') (updateProgram p)
   in case i of
     '>' -> step incrementDataPointer     memory    goRight               program
     '<' -> step decrementDataPointer     memory    goRight               program
@@ -129,7 +129,7 @@ readProgram (i:is)     = ([], i   , is ++ "\0")
 initialMemory :: Memory
 initialMemory = ([], 0, repeat 0)
 
-run :: String -> IO String
+run :: String -> IO (Maybe String)
 run = execute initialMemory . readProgram
 
 
@@ -138,4 +138,4 @@ main = do
   args <- getArgs
   case args of
     [] -> putStrLn "Usage: runhaskell brainfuck.hs [brainfuck source file]"
-    filename:_ -> readFile filename >>= run >> return ()
+    filename:_ -> readFile filename >>= run >>= maybe (return ()) putStrLn
