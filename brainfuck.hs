@@ -1,5 +1,4 @@
 module Brainfuck where
--- see https://en.wikipedia.org/wiki/Brainfuck
 
 import Control.Monad.Error () -- instance Monad Either String
 import Data.ByteString     (hGet, hPutStr, singleton, unpack)
@@ -12,7 +11,7 @@ import System.Environment  (getArgs)
 -- see http://learnyouahaskell.com/zippers
 type Zipper a = ([a], a, [a])
 
--- from Wikipedia:
+-- from Wikipedia: https://en.wikipedia.org/wiki/Brainfuck
 -- "The brainfuck language uses a simple machine model consisting of the program
 -- and instruction pointer, as well as an array of at least 30,000 byte cells
 -- initialized to zero; a movable data pointer (initialized to point to the
@@ -52,16 +51,18 @@ incrementDataPointer :: Memory -> Memory
 incrementDataPointer = goRight
 
 -- (<): decrement the data pointer (to point to the next cell to the left)
--- Left if program decrements data pointer when the data pointer (i.e. the
--- focus of the data pointer) is focused on cell 0; Right otherwise
+-- Left String if program decrements data pointer when the data pointer (i.e.
+-- the focus of the Memory Zipper) is focused on cell 0; Right Memory otherwise
 decrementDataPointer :: Memory -> Either String Memory
 decrementDataPointer = goLeft
 
 -- (+): increment the byte at the data pointer
+-- byte arithmetic is modulo 256; overflow is not an error
 incrementByte :: Memory ->     Memory
 incrementByte    (ls, b, rs) = (ls, b+1, rs)
 
 -- (-): decrement the byte at the data pointer
+-- byte arithmetic is modulo 256; overflow is not an error
 decrementByte :: Memory ->     Memory
 decrementByte    (ls, b, rs) = (ls, b-1, rs)
 
@@ -70,13 +71,14 @@ output :: Memory ->   IO ()
 output    (_, b, _) = hPutStr stdout . singleton $ b
 
 -- (,): accept 1 byte of input; store its value in the byte at the data pointer
+-- if you enter multiple bytes when the program is expecting just one, the
+-- other bytes remain in the buffer, and will be passed to future calls to ','
 input :: Memory ->    IO Memory
 input   (ls, _, rs) = hGet stdin 1 >>= \ b -> case unpack b of
   [byte] -> return (ls, byte, rs)
   _      -> error "could not read a byte of input"
 
--- not a brainfuck command; see usage in next two commands below
--- see also readProgram, below
+-- not a brainfuck command; see readProgram, and usage in next 2 commands, below
 readProgramErrorMessage :: String
 readProgramErrorMessage = "jump instruction blew up because of a bug \
                            \in readProgram: this should be impossible because \
@@ -86,9 +88,9 @@ readProgramErrorMessage = "jump instruction blew up because of a bug \
 
 -- ([): If the byte at the data pointer (i.e. the focus of the Memory zipper) is
 -- zero, then this function jumps the instruction pointer (i.e. the focus of the
--- Program zipper) FORWARD to the command after the matching ']' command.
+-- Program zipper) FORWARD to the command AFTER the matching ']' command.
 -- If the byte at the data pointer is nonzero, then this function simply
--- increments the instruction pointer forward to the command.
+-- increments the instruction pointer forward to the next command.
 jumpIfZero :: Memory -> Program -> Program
 jumpIfZero    (_, x, _) program  = case x of 0 -> jumpPast ']' program
                                              _ -> goRight program
@@ -100,14 +102,14 @@ jumpIfZero    (_, x, _) program  = case x of 0 -> jumpPast ']' program
 
 -- (]): If the byte at the data pointer (i.e. the focus of the Memory zipper) is
 -- zero, then this function simply increments the instruction pointer (i.e. the
--- focus of the Program zipper).
+-- focus of the Program zipper) forward to the next command.
 -- If the byte at the data pointer is nonzero then instead of moving the
 -- instruction pointer forward to the next command, this function jumps the
--- instruction pointer BACK to the command after the matching '[' command.
+-- instruction pointer BACK to the command AFTER the matching '[' command.
 
--- it is possible to implement this behavior as an unconditional jump back to
+-- It is possible to implement this behavior as an unconditional jump back to
 -- the corresponding left bracket; but then, if the byte at the data pointer is
--- zero, the program will unnecessarily jump twice, which is inefficient
+-- zero, the program will unnecessarily jump twice, which is inefficient.
 stepIfZero :: Memory -> Program -> Program
 stepIfZero    (_, x, _) program  = case x of 0 -> goRight program
                                              _ -> jumpBack '[' program
@@ -123,6 +125,8 @@ stepIfZero    (_, x, _) program  = case x of 0 -> goRight program
 execute :: Memory -> Program ->         IO (Maybe String)
 execute    _              (_, _, [] ) = return Nothing -- end legal program
 execute    mem       prog@(_, i, _:_) =
+  let step :: (Memory  -> Either String Memory ) -> Memory  ->
+              (Program -> Program)               -> Program -> IO (Maybe String)
   -- At every step, try to update the memory. If that fails, pass the exception
   -- to the user. (The only possible failure is in decrementDataPointer: in many
   -- programs which read input, it is impossible to perform a static check to
@@ -134,8 +138,6 @@ execute    mem       prog@(_, i, _:_) =
   -- above, readProgram guarantees that our programs are well-formed, and
   -- updating a well-formed program cannot fail.)
   -- Repeat until we encounter an exception or reach the end of a legal program.
-  let step :: (Memory  -> Either String Memory ) -> Memory  ->
-              (Program -> Program)               -> Program -> IO (Maybe String)
       step updateMemory m updateProgram p =
         either (return . Just) (flip execute (updateProgram p)) (updateMemory m)
   in case i of
@@ -158,8 +160,8 @@ execute    mem       prog@(_, i, _:_) =
 -- end of program is signified by an empty list to the right of the focus
 -- of the Zipper. But the focus is the current instruction, which must be
 -- executed even if no instructions follow it.
--- But first we check that the input is well-formed by ensuring that there is an
--- equal number of '[' and ']', and that every ']' is preceded by a '['.
+-- Before that, we check that the input is well-formed by ensuring that there is
+-- an equal number of '[' and ']', and that every ']' is preceded by a '['.
 readProgram :: String ->     Either String Program
 readProgram []             = Right (undefined, undefined, [])
 readProgram program@(i:is) = case brackets of
