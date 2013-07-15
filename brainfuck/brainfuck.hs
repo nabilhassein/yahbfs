@@ -78,6 +78,10 @@ leftBracket    (_, x, _) program  = case x of 0 -> jumpPast ']' program
 -- If the byte at the data pointer is nonzero then instead of moving the
 -- instruction pointer forward to the next command, this function jumps the
 -- instruction pointer BACK to the command after the matching '[' command.
+
+-- it is possible to implement this behavior as an unconditional jump back to
+-- the corresponding left bracket; but then, if the byte at the data pointer is
+-- zero, the program will unnecessarily jump twice, which is inefficient
 rightBracket :: Memory -> Program -> Either String Program
 rightBracket    (_, x, _) program  = case x of
   0 -> goRight program
@@ -99,7 +103,6 @@ execute    memory    program@(_, i, _:_) =
       step updateMemory m updateProgram p = case updateMemory m of
         Left  s  -> return s
         Right m' -> either return (execute m') (updateProgram p)
-
   in case i of
     '>' -> step incrementDataPointer     memory    goRight               program
     '<' -> step decrementDataPointer     memory    goRight               program
