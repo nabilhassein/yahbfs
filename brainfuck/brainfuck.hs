@@ -1,10 +1,13 @@
 module Brainfuck where
 -- see https://en.wikipedia.org/wiki/Brainfuck
 
+import Prelude hiding      (putStr)
+
 import Control.Monad.Error () -- instance Monad Either String
-import Data.Char           (ord, chr)
+import Data.ByteString     (hGet, putStr, singleton, unpack)
 import Data.List           (elemIndex)
 import Data.Word           (Word8)
+import System.IO           (hSetEncoding, latin1, stdin, stdout)
 import System.Environment  (getArgs)
 
 
@@ -66,11 +69,13 @@ decrementByte    (ls, b, rs) = (ls, b-1, rs)
 
 -- (.): output the byte at the data pointer
 output :: Memory ->   IO ()
-output    (_, b, _) = putChar . chr . fromEnum $ b
+output    (_, b, _) = putStr . singleton $ b
 
 -- (,): accept 1 byte of input; store its value in the byte at the data pointer
 input :: Memory ->    IO Memory
-input   (ls, _, rs) = getChar >>= \ c -> return (ls, (toEnum . ord) c, rs)
+input   (ls, _, rs) = hGet stdin 1 >>= \ b -> case unpack b of
+  [byte] -> return (ls, byte, rs)
+  _      -> error "could not read a byte of input"
 
 -- not a brainfuck command; see usage in next two commands below
 readProgramErrorMessage :: String
@@ -108,11 +113,11 @@ stepIfZero :: Memory -> Program -> Program
 stepIfZero    (_, x, _) program  = case x of 0 -> goRight program
                                              _ -> jumpBack '[' program
   where jumpBack :: Char -> Program ->         Program
-        jumpBack    _         ([] , _, _) = error readProgramErrorMessage
-        jumpBack    c       p@(l:_, _, _) =
+        jumpBack    _            ([] , _, _) = error readProgramErrorMessage
+        jumpBack    c       prog@(l:_, _, _) =
           if l == c
-          then p
-          else either (error readProgramErrorMessage) (jumpBack c) (goLeft p)
+          then prog
+          else either (error readProgramErrorMessage) (jumpBack c) (goLeft prog)
 
 
 -- Done implementing brainfuck commands. This is the heart of the interpreter.
@@ -189,4 +194,5 @@ run = either (return . Just) (execute initialMemory) . readProgram
 main :: IO ()
 main = getArgs >>= \ args -> case args of
   []         -> putStrLn "Usage: runhaskell brainfuck.hs [brainfuck source file]"
-  filename:_ -> readFile filename >>= run >>= maybe (return ()) putStrLn
+  filename:_ -> hSetEncoding stdin latin1 >> hSetEncoding stdout latin1 >>
+    readFile filename >>= run >>= maybe (return ()) putStrLn
