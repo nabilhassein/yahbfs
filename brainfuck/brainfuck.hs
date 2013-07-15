@@ -56,13 +56,13 @@ output    (_, b, _) = putChar . chr . fromEnum $ b
 input :: Memory ->    IO Memory
 input   (ls, _, rs) = getChar >>= \ c -> return (ls, (toEnum . ord) c, rs)
 
--- not a brainfuck command, obviously; see usage in next two commands below
+-- not a brainfuck command; see usage in next two commands below
 readProgramErrorMessage :: String
 readProgramErrorMessage = "jump instruction blew up because of a bug \
                            \in readProgram: this should be impossible because \
-                           \readProgram should enforce well-formed-ness of \
-                           \programs, i.e. matching number of brackets, \
-                           \with a '[' always preceding a ']'"
+                           \readProgram should only accept well-formed \
+                           \programs, i.e. programs with a matching number of \
+                           \brackets, with a '[' always preceding a ']'"
 
 -- ([): If the byte at the data pointer (i.e. the focus of the Memory zipper) is
 -- zero, then this function jumps the instruction pointer (i.e. the focus of the
@@ -98,10 +98,15 @@ stepIfZero    (_, x, _) program  = case x of 0 -> goRight program
                                                else goLeft prog >>= jumpBack c
 
 
--- done implementing brainfuck commands; this is the heart of the interpreter
+-- Done implementing brainfuck commands. This is the heart of the interpreter.
 execute :: Memory -> Program ->            IO (Maybe String)
 execute    _                 (_, _, [] ) = return Nothing -- end legal program
 execute    memory    program@(_, i, _:_) =
+  -- At every step, try to update the memory. If that fails, pass the error
+  -- to the user. If it succeeds, then try to update the program. If that fails,
+  -- pass that error to the user. If it succeeds, continue execution with the
+  -- updated program and memory. Repeat ad infinitum until we either encounter
+  -- an error or successfully reach the end of a legal program.
   let step :: (Memory  -> Either String Memory ) -> Memory  ->
               (Program -> Either String Program) -> Program -> IO (Maybe String)
       step updateMemory m updateProgram p = case updateMemory m of
@@ -125,7 +130,7 @@ execute    memory    program@(_, i, _:_) =
 -- of the focus of the Zipper. But the focus is the current instruction, which
 -- must be executed even if no instructions follow it. So in the second pattern,
 -- we add a dummy instruction to ensure we execute the final real instruction,
--- after we check for well-formed-ness of the input by ensuring that there is an
+-- after we check that the input is well-formed by ensuring that there is an
 -- equal number of '[' and ']', and that every ']' is preceded by a '['.
 -- In the first pattern, the empty program is legal, and results in a no-op.
 readProgram :: String ->     Either String Program
@@ -152,9 +157,13 @@ readProgram program@(i:is) = case brackets of
       ']' -> subtract 1
       _   -> id
 
+-- brainfuck's specification mandates "at least" 30000 bytes of memory. We can
+-- very easily implement an infinite memory space, thanks to laziness, so we do.
 initialMemory :: Memory
 initialMemory = ([], 0, repeat 0)
 
+-- If program is well-formed, execute it with the initial memory of all zeroes.
+-- If program is malformed, display the error to the user, and exit.
 run :: String -> IO (Maybe String)
 run = either (return . Just) (execute initialMemory) . readProgram
 
