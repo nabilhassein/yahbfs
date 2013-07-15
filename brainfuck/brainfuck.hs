@@ -2,6 +2,7 @@ module Brainfuck where
 
 import Control.Monad.Error () -- instance Monad Either String
 import Data.Char           (ord, chr)
+import Data.List           (elemIndex)
 import Data.Word           (Word8)
 import System.Environment  (getArgs)
 
@@ -11,11 +12,11 @@ type Zipper a = ([a], a, [a])
 
 goRight :: Zipper a ->     Either String (Zipper a)
 goRight    (ls, x, r:rs) = Right (x:ls, r, rs)
-goRight    (_ , _, []  ) = Left  "illegal: cannot go right past end of program"
+goRight    (_ , _, []  ) = Left  "illegal: cannot go right past end of zipper"
 
 goLeft :: Zipper a ->     Either String (Zipper a)
 goLeft    (l:ls, x, rs) = Right (ls, l, x:rs)
-goLeft    ([]  , _, _ ) = Left  "illegal: cannot go left past cell 0"
+goLeft    ([]  , _, _ ) = Left  "illegal: cannot go left past start of zipper"
 
 -- from Wikipedia: https://en.wikipedia.org/wiki/Brainfuck
 -- "The brainfuck language uses a simple machine model consisting of the program
@@ -53,8 +54,15 @@ output    (_, b, _) = putChar . chr . fromEnum $ b
 
 -- (,): accept 1 byte of input; store its value in the byte at the data pointer
 input :: Memory ->    IO Memory
-input   (ls, _, rs) = do c <- getChar
-                         return (ls, (toEnum . ord) c, rs)
+input   (ls, _, rs) = getChar >>= \ c -> return (ls, (toEnum . ord) c, rs)
+
+-- not a brainfuck command, obviously; see usage in next two commands below
+readProgramErrorMessage :: String
+readProgramErrorMessage = "jump instruction blew up because of a bug \
+                           \in readProgram: this should be impossible because \
+                           \readProgram should enforce well-formed-ness of \
+                           \programs, i.e. matching number of brackets, \
+                           \with a '[' always preceding a ']'"
 
 -- ([): If the byte at the data pointer (i.e. the focus of the Memory zipper) is
 -- zero, then this function jumps the instruction pointer (i.e. the focus of the
@@ -65,8 +73,7 @@ jumpIfZero :: Memory -> Program -> Either String Program
 jumpIfZero    (_, x, _) program  = case x of 0 -> jumpPast ']' program
                                              _ -> goRight program
   where jumpPast :: Char -> Program ->         Either String Program
-        jumpPast    c            (_, _, [] ) = Left $ "Illegal program: \
-                                                      \missing " ++ [c]
+        jumpPast    _            (_, _, [] ) = error readProgramErrorMessage
         jumpPast    c       prog@(_, _, r:_) = if r == c
                                                then goRight prog >>= goRight
                                                else goRight prog >>= jumpPast c
@@ -85,8 +92,7 @@ stepIfZero :: Memory -> Program -> Either String Program
 stepIfZero    (_, x, _) program  = case x of 0 -> goRight program
                                              _ -> jumpBack '[' program
   where jumpBack :: Char -> Program ->         Either String Program
-        jumpBack    c            ([] , _, _) = Left $ "Illegal program: \
-                                                      \ missing " ++ [c]
+        jumpBack    _            ([] , _, _) = error readProgramErrorMessage
         jumpBack    c       prog@(l:_, _, _) = if l == c
                                                then Right prog
                                                else goLeft prog >>= jumpBack c
@@ -118,21 +124,42 @@ execute    memory    program@(_, i, _:_) =
 -- In `execute` above, end of program is signified by an empty list to the right
 -- of the focus of the Zipper. But the focus is the current instruction, which
 -- must be executed even if no instructions follow it. So in the second pattern,
--- we add a dummy instruction to ensure we execute the final real instruction.
-readProgram :: String -> Program
-readProgram []         = ([], '\0', []        ) -- no-op
-readProgram (i:is)     = ([], i   , is ++ "\0")
+-- we add a dummy instruction to ensure we execute the final real instruction,
+-- after we check for well-formed-ness of the input by ensuring that there is an
+-- equal number of '[' and ']', and that every ']' is preceded by a '['.
+-- In the first pattern, the empty program is legal, and results in a no-op.
+readProgram :: String ->     Either String Program
+readProgram []             = Right (undefined, undefined, [])
+readProgram program@(i:is) = case brackets of
+  Left  index    -> Left $ "Illegal program: ']' at character " ++ show index ++
+                           " of input, before any matching '['"
+  Right n
+    | n < 0     -> error "bug: should be impossible because firstMismatched \
+                         \should already catch the case of more ']' than '['"
+    | n > 0     -> Left $ "Illegal program: " ++ show n ++ " more '[' than ']'"
+    | otherwise -> Right ([], i, is ++ "\0")
+
+  where
+    brackets :: Either Int Int
+    brackets = let runningBracketCount :: [Int]
+                   runningBracketCount =  scanl (flip countBrackets) 0 program
+                   firstMismatched     :: Maybe Int
+                   firstMismatched     =  (-1) `elemIndex` runningBracketCount
+               in  maybe (Right $ last runningBracketCount) Left firstMismatched
+    countBrackets :: Char -> Int -> Int
+    countBrackets c = case c of
+      '[' -> (+ 1)
+      ']' -> subtract 1
+      _   -> id
 
 initialMemory :: Memory
 initialMemory = ([], 0, repeat 0)
 
 run :: String -> IO (Maybe String)
-run = execute initialMemory . readProgram
+run = either (return . Just) (execute initialMemory) . readProgram
 
 
 main :: IO ()
-main = do
-  args <- getArgs
-  case args of
-    [] -> putStrLn "Usage: runhaskell brainfuck.hs [brainfuck source file]"
-    filename:_ -> readFile filename >>= run >>= maybe (return ()) putStrLn
+main = getArgs >>= \ args -> case args of
+  []         -> putStrLn "Usage: runhaskell brainfuck.hs [brainfuck source file]"
+  filename:_ -> readFile filename >>= run >>= maybe (return ()) putStrLn
