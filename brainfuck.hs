@@ -92,13 +92,15 @@ readProgramErrorMessage = "jump instruction blew up because of a bug \
 -- If the byte at the data pointer is nonzero, then this function simply
 -- increments the instruction pointer forward to the next command.
 jumpIfZero :: Memory -> Program -> Program
-jumpIfZero    (_, x, _) program  = case x of 0 -> jumpPast ']' program
+jumpIfZero    (_, x, _) program  = case x of 0 -> jumpPast 0 program
                                              _ -> goRight program
-  where jumpPast :: Char -> Program ->         Program
-        jumpPast    _            (_, _, [] ) = error readProgramErrorMessage
-        jumpPast    c       prog@(_, _, r:_) = if r == c
-                                               then goRight $ goRight prog
-                                               else jumpPast c $ goRight prog
+  where jumpPast :: Int -> Program ->         Program
+        jumpPast    _           (_, _, [] ) = error readProgramErrorMessage
+        jumpPast    count  prog@(_, _, r:_) = case (r, count) of
+          (']', 0) -> goRight $ goRight prog -- go just past the matching brace
+          (']', _) -> jumpPast (count - 1) (goRight prog)
+          ('[', _) -> jumpPast (count + 1) (goRight prog)
+          _        -> jumpPast count       (goRight prog)
 
 -- (]): If the byte at the data pointer (i.e. the focus of the Memory zipper) is
 -- zero, then this function simply increments the instruction pointer (i.e. the
@@ -112,13 +114,20 @@ jumpIfZero    (_, x, _) program  = case x of 0 -> jumpPast ']' program
 -- zero, the program will unnecessarily jump twice, which is inefficient.
 stepIfZero :: Memory -> Program -> Program
 stepIfZero    (_, x, _) program  = case x of 0 -> goRight program
-                                             _ -> jumpBack '[' program
-  where jumpBack :: Char -> Program ->         Program
-        jumpBack    _            ([] , _, _) = error readProgramErrorMessage
-        jumpBack    c       prog@(l:_, _, _) =
-          if l == c
-          then prog
-          else either (error readProgramErrorMessage) (jumpBack c) (goLeft prog)
+                                             _ -> jumpBack 0 program
+  where jumpBack :: Int -> Program ->         Program
+        jumpBack    _           ([] , _, _) = error readProgramErrorMessage
+        jumpBack    count  prog@(l:_, _, _) = case (l, count) of
+          ('[', 0) -> prog -- we are already just past the matching brace
+          ('[', _) -> jumpBack (count - 1) (goLeftOrDie prog)
+          (']', _) -> jumpBack (count + 1) (goLeftOrDie prog)
+          _        -> jumpBack count       (goLeftOrDie prog)
+        -- readProgram guarantees that there are a matching number of brackets,
+        -- with a '[' always preceding a ']', so the error is impossible unless
+        -- there is a bug in readProgram, since we won't attempt to goLeft past
+        -- the beginning of a program that satisfies this guarantee
+        goLeftOrDie :: Program -> Program
+        goLeftOrDie = either (error readProgramErrorMessage) id . goLeft
 
 
 -- Done implementing brainfuck commands. This is the heart of the interpreter.
