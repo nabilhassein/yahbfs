@@ -130,52 +130,22 @@ stepIfZero    (_, x, _) program  = case x of 0 -> goRight program
         goLeftOrDie = either (error readProgramErrorMessage) id . goLeft
 
 
--- Done implementing brainfuck commands. This is the heart of the interpreter.
-execute :: Memory -> Program ->         IO (Maybe String)
-execute    _              (_, _, [] ) = return Nothing -- end legal program
-execute    mem       prog@(_, i, _:_) =
-  let step :: (Memory  -> Either String Memory ) -> Memory  ->
-              (Program -> Program)               -> Program -> IO (Maybe String)
-  -- At every step, try to update the memory. If that fails, pass the exception
-  -- to the user. (The only possible failure is in decrementDataPointer: in many
-  -- programs which read input, it is impossible to perform a static check to
-  -- guarantee that the program does not attempt to move the data pointer left
-  -- past cell 0 of Memory. No other exception is possible; all other invalid
-  -- programs are rejected by readProgram, and will never be passed to execute.
-  -- If updating memory succeeds, then update the program and continue execution
-  -- with the updated memory and program. (Note that, as explained in comments
-  -- above, readProgram guarantees that our programs are well-formed, and
-  -- updating a well-formed program cannot fail.)
-  -- Repeat until we encounter an exception or reach the end of a legal program.
-      step updateMemory m updateProgram p =
-        either (return . Just) (flip execute (updateProgram p)) (updateMemory m)
-  in case i of
-    '>' -> step (return . incrementDataPointer) mem    goRight          prog
-    '<' -> step decrementDataPointer            mem    goRight          prog
-    '+' -> step (return . incrementByte)        mem    goRight          prog
-    '-' -> step (return . decrementByte)        mem    goRight          prog
-    '.' -> output mem >>
-           step return                          mem    goRight          prog
-    ',' -> input mem >>= \ newMem ->
-           step return                          newMem goRight          prog
-    '[' -> step return                          mem    (jumpIfZero mem) prog
-    ']' -> step return                          mem    (stepIfZero mem) prog
-    _   -> step return                          mem    goRight          prog
+-- done implementing brainfuck commands
 
 
 -- In the first pattern, the empty program is legal, and results in a no-op.
--- In the second pattern, we add a dummy pattern to ensure we execute the final
--- real instruction. This is necessary because in `execute` above,
--- end of program is signified by an empty list to the right of the focus
--- of the Zipper. But the focus is the current instruction, which must be
--- executed even if no instructions follow it.
+-- In the second pattern, we add a dummy pattern to ensure we perform the final
+-- real instruction. This is necessary because in `interpret` and `compile`
+-- below, end of program is signified by an empty list to the right of the
+-- focus of the Zipper. But the focus is the current instruction, which must be
+-- executed regardless of whether any more instructions follow it.
 -- Before that, we check that the input is well-formed by ensuring that there is
 -- an equal number of '[' and ']', and that every ']' is preceded by a '['.
 readProgram :: String ->     Either String Program
 readProgram []             = Right (undefined, undefined, [])
 readProgram program@(i:is) = case brackets of
-  Left  index    -> Left $ "Illegal program: ']' at character " ++ show index ++
-                           " of input, before any matching '['"
+  Left  index   -> Left $ "Illegal program: ']' at character " ++ show index ++
+                          " of input program, before any matching '['"
   Right n
     | n < 0     -> error "bug: should be impossible because firstMismatched \
                          \should already catch the case of more ']' than '['"
@@ -200,15 +170,82 @@ readProgram program@(i:is) = case brackets of
 initialMemory :: Memory
 initialMemory = ([], 0, repeat 0)
 
--- If program is well-formed, execute it with the initial memory of all zeroes.
--- If program is malformed, display the problem to the user, and exit.
+-- If program is well-formed, interpret it with the initial memory of all zeroes
+-- If program is malformed, display the problem to the user, and exit
 run :: String -> IO (Maybe String)
-run = either (return . Just) (execute initialMemory) . readProgram
+run = either (return . Just) (interpret initialMemory) . readProgram
+
+
+interpret :: Memory -> Program ->         IO (Maybe String)
+interpret    _              (_, _, [] ) = return Nothing -- end legal program
+interpret    mem       prog@(_, i, _:_) =
+  let step :: (Memory  -> Either String Memory) -> Memory  ->
+              (Program -> Program)              -> Program -> IO (Maybe String)
+  -- At every step, try to update the memory. If that fails, pass the exception
+  -- to the user. (The only possible failure is in decrementDataPointer:
+  -- in the general case, it is impossible to perform a static check to
+  -- guarantee that the program does not attempt to move the data pointer left
+  -- past cell 0 of Memory. No other exception is possible; all other invalid
+  -- programs are rejected by readProgram, and are never passed to interpret.)
+  -- If updating memory succeeds, then update the program and continue execution
+  -- with the updated memory and program. (Note that, as explained in comments
+  -- above, readProgram guarantees that our programs are well-formed, and
+  -- updating a well-formed program cannot fail.)
+  -- Repeat until we encounter an exception or reach the end of a legal program.
+      step updateMem m updateProg p =
+        either (return . Just) (flip interpret (updateProg p)) (updateMem m)
+  in case i of
+    '>' -> step (return . incrementDataPointer) mem    goRight          prog
+    '<' -> step decrementDataPointer            mem    goRight          prog
+    '+' -> step (return . incrementByte)        mem    goRight          prog
+    '-' -> step (return . decrementByte)        mem    goRight          prog
+    '.' -> output mem >>
+           step return                          mem    goRight          prog
+    ',' -> input mem >>= \ newMem ->
+           step return                          newMem goRight          prog
+    '[' -> step return                          mem    (jumpIfZero mem) prog
+    ']' -> step return                          mem    (stepIfZero mem) prog
+    _   -> step return                          mem    goRight          prog
+
+
+-- hackiest, simplest compiler ever. currently not tested and not optimized.
+-- TODO: improve this C "backend", and write others: asm? llvm? js? jvm?
+translateToC :: Program -> String
+translateToC         (_, _, []) = ""
+translateToC program@(_, i, _ ) = case i of
+  '>' -> "++ptr"          `terminateAndAppend` translateToC (goRight program)
+  '<' -> "--ptr"          `terminateAndAppend` translateToC (goRight program)
+  '+' -> "++*ptr"         `terminateAndAppend` translateToC (goRight program)
+  '-' -> "--*ptr"         `terminateAndAppend` translateToC (goRight program)
+  '.' -> "putchar(*ptr)"  `terminateAndAppend` translateToC (goRight program)
+  ',' -> "*ptr=getchar()" `terminateAndAppend` translateToC (goRight program)
+  '[' -> "while(*ptr){\n" ++                   translateToC (goRight program)
+  ']' -> "}\n"            ++                   translateToC (goRight program)
+  _   ->                                       translateToC (goRight program)
+  where terminateAndAppend :: String -> String -> String
+        terminateAndAppend s1 s2 = s1 ++ ";\n" ++ s2
+
+wrap :: String -> String
+wrap s = header ++ startmain ++ s ++ endmain
+  where header    = "#include <stdio.h>\n\
+                    \#include <string.h>\n\n"
+        startmain = "void main (){\n\
+                     \char array[30000];\n\
+                     \char *ptr = array;\n\
+                     \memset(ptr, 0, 30000);\n"
+        endmain   = "\n}\n"
+
+compile :: Program -> String
+compile = wrap . translateToC
+
+-- for convenience in the repl
+test :: String -> IO ()
+test = putStrLn . either id compile . readProgram
 
 
 --`hSetEncoding _ latin1` enforces that we accept only ASCII bytes, as specified
 main :: IO ()
 main = getArgs >>= \ args -> case args of
-  []         -> putStrLn "Usage: runhaskell brainfuck.hs [brainfuck source file]"
-  filename:_ -> hSetEncoding stdin latin1 >> hSetEncoding stdout latin1 >>
-    readFile filename >>= run >>= maybe (return ()) putStrLn
+  []     -> putStrLn "Usage: runhaskell brainfuck.hs [brainfuck source file]"
+  file:_ -> hSetEncoding stdin latin1 >> hSetEncoding stdout latin1
+    >> readFile file >>= run >>= maybe (return ()) putStrLn
