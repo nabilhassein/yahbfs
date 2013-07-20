@@ -118,13 +118,17 @@ bfi = {
 }
 
 
-while(programPointer < program.length) {
-    var command = program[programPointer];
-    if (command in bfi) {
-        bfi[command]();
+var main = function () {
+    while(programPointer < program.length) {
+        var command = program[programPointer];
+        if (command in bfi) {
+            bfi[command]();
+        }
+        else {
+            ++programPointer;
+        }
     }
-    else {
-        ++programPointer;
-    }
-}
+};
 
+
+// main();
