@@ -1,7 +1,15 @@
-var output         = console.log;
+var fs = require("fs");
+
+var output = function(s) {
+    try {
+        process.stdout.write(String.fromCharCode(s));
+    } catch (e) {
+        process.stdout.write("");
+    }
+}
 
 var memory         = [];
-var program        = ".+.+";
+var program        = ".+[.+]";
 var memoryPointer  = 0;
 var programPointer = 0;
 
@@ -12,7 +20,7 @@ var remainder = function (a, n) {
 };
 
 var getMemory = function() {
-    if(typeof(memory[memoryPointer]) !== "Number") {
+    if(typeof(memory[memoryPointer]) !== "number") {
         memory[memoryPointer] = 0;
     }
     return memory[memoryPointer];
@@ -131,4 +139,13 @@ var main = function () {
 };
 
 
-// main();
+var filename = process.argv[process.argv.length - 1]
+
+fs.readFile(filename, "utf8", function(err, data) {
+    if (err) {
+        console.error("Error finding file named " + filename);
+    } else {
+        program = data;
+        main();
+    }
+});
