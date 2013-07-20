@@ -210,9 +210,9 @@ interpret    mem       prog@(_, i, _:_) =
 
 -- hackiest, simplest compiler ever. currently not tested and not optimized.
 -- TODO: improve this C "backend", and write others: asm? llvm? js? jvm?
-translateToC :: Program -> String
-translateToC         (_, _, []) = ""
-translateToC program@(_, i, _ ) = case i of
+translateToC :: Program ->           String
+translateToC            (_, _, []) = ""
+translateToC    program@(_, i, _ ) = case i of
   '>' -> "++ptr"          `terminateAndAppend` translateToC (goRight program)
   '<' -> "--ptr"          `terminateAndAppend` translateToC (goRight program)
   '+' -> "++*ptr"         `terminateAndAppend` translateToC (goRight program)
@@ -225,8 +225,8 @@ translateToC program@(_, i, _ ) = case i of
   where terminateAndAppend :: String -> String -> String
         terminateAndAppend s1 s2 = s1 ++ ";\n" ++ s2
 
-wrap :: String -> String
-wrap s = header ++ startmain ++ s ++ endmain
+wrapToC  :: String -> String
+wrapToC s = header ++ startmain ++ s ++ endmain
   where header    = "#include <stdio.h>\n\
                     \#include <string.h>\n\n"
         startmain = "void main (){\n\
@@ -235,12 +235,12 @@ wrap s = header ++ startmain ++ s ++ endmain
                      \memset(ptr, 0, 30000);\n"
         endmain   = "\n}\n"
 
-compile :: Program -> String
-compile = wrap . translateToC
+compileToC :: Program -> String
+compileToC  = wrapToC . translateToC
 
 -- for convenience in the repl
-test :: String -> IO ()
-test = putStrLn . either id compile . readProgram
+testC :: String -> IO ()
+testC = putStrLn . either id compileToC . readProgram
 
 
 --`hSetEncoding _ latin1` enforces that we accept only ASCII bytes, as specified
