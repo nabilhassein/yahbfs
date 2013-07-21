@@ -2,9 +2,9 @@ var fs = require("fs");
 
 var output = function(s) {
     try {
-        process.stdout.write(String.fromCharCode(s));
+        process.stdout.write(String.fromCharCode(s)); // byte -> ASCII
     } catch (e) {
-        process.stdout.write("");
+        // simply don't print non-ASCII characters
     }
 }
 
@@ -96,7 +96,7 @@ bfi = {
         memory[memoryPointer] = remainder((b + 1), 256);
         ++programPointer;
     },
-    '-' : function (){
+    '-' : function () {
         var b                 = getMemory();
         memory[memoryPointer] = remainder((b - 1), 256);
         ++programPointer;
