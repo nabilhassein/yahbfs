@@ -242,10 +242,19 @@ compileToC  = wrapToC . translateToC
 testC :: String -> IO ()
 testC = putStrLn . either id compileToC . readProgram
 
+writeCToFile :: String -> String -> IO ()
+writeCToFile    program   dest    =
+  either putStrLn (writeFile dest . compileToC) (readProgram program)
+
 
 --`hSetEncoding _ latin1` enforces that we accept only ASCII bytes, as specified
 main :: IO ()
 main = getArgs >>= \ args -> case args of
-  []     -> putStrLn "Usage: runhaskell brainfuck.hs [brainfuck source file]"
-  file:_ -> hSetEncoding stdin latin1 >> hSetEncoding stdout latin1
-    >> readFile file >>= run >>= maybe (return ()) putStrLn
+  src:[] -> do
+    hSetEncoding stdin  latin1
+    hSetEncoding stdout latin1
+    program <- readFile src
+    let dest = "/tmp/out.c"
+    writeCToFile program dest
+    putStrLn $ "compiled " ++ src ++ " to " ++ dest
+  _ -> putStrLn "Usage: runhaskell brainfuck.hs [brainfuck source file]"
