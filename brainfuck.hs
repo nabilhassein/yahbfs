@@ -3,8 +3,7 @@ module Brainfuck where
 import Control.Monad.Error () -- instance Monad Either String
 import Data.List           (elemIndex)
 import Data.Word           (Word8)
-import System.IO           (hGetContents, hPutStr, hSetEncoding,
-                            latin1, stdin, stdout)
+import System.IO           (stdin)
 import qualified Data.ByteString as BL
 
 
@@ -68,7 +67,7 @@ decrementByte    (ls, b, rs) = (ls, b-1, rs)
 
 -- (.): output the byte at the data pointer
 output :: Memory ->   IO ()
-output    (_, b, _) = BL.hPutStr stdout . BL.singleton $ b
+output    (_, b, _) = BL.putStr . BL.singleton $ b
 
 -- (,): accept 1 byte of input; store its value in the byte at the data pointer
 -- if you enter multiple bytes when the program is expecting just one, the
@@ -249,7 +248,4 @@ writeCToFile    program   dest    =
 
 --`hSetEncoding _ latin1` enforces that we accept only ASCII bytes, as specified
 main :: IO ()
-main = hSetEncoding stdin latin1 >>  hSetEncoding stdout latin1 >>
-  hGetContents stdin >>=
-  either error (hPutStr stdout . compileToC) . readProgram
- 
+main = getContents >>= either error (putStr . compileToC) . readProgram
