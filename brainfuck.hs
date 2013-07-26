@@ -1,11 +1,11 @@
 module Brainfuck where
 
 import Control.Monad.Error () -- instance Monad Either String
-import Data.ByteString     (hGet, hPutStr, singleton, unpack)
 import Data.List           (elemIndex)
 import Data.Word           (Word8)
-import System.IO           (hSetEncoding, latin1, stdin, stdout)
-import System.Environment  (getArgs)
+import System.IO           (hGetContents, hPutStr, hSetEncoding,
+                            latin1, stdin, stdout)
+import qualified Data.ByteString as BL
 
 
 -- see http://learnyouahaskell.com/zippers
@@ -68,13 +68,13 @@ decrementByte    (ls, b, rs) = (ls, b-1, rs)
 
 -- (.): output the byte at the data pointer
 output :: Memory ->   IO ()
-output    (_, b, _) = hPutStr stdout . singleton $ b
+output    (_, b, _) = BL.hPutStr stdout . BL.singleton $ b
 
 -- (,): accept 1 byte of input; store its value in the byte at the data pointer
 -- if you enter multiple bytes when the program is expecting just one, the
 -- other bytes remain in the buffer, and will be passed to future calls to ','
 input :: Memory ->    IO Memory
-input   (ls, _, rs) = hGet stdin 1 >>= \ b -> case unpack b of
+input   (ls, _, rs) = BL.hGet stdin 1 >>= \ b -> case BL.unpack b of
   [byte] -> return (ls, byte, rs)
   _      -> error "could not read a byte of input"
 
@@ -249,12 +249,7 @@ writeCToFile    program   dest    =
 
 --`hSetEncoding _ latin1` enforces that we accept only ASCII bytes, as specified
 main :: IO ()
-main = getArgs >>= \ args -> case args of
-  src:[] -> do
-    hSetEncoding stdin  latin1
-    hSetEncoding stdout latin1
-    program <- readFile src
-    let dest = "/tmp/out.c"
-    writeCToFile program dest
-    putStrLn $ "compiled " ++ src ++ " to " ++ dest
-  _ -> putStrLn "Usage: runhaskell brainfuck.hs [brainfuck source file]"
+main = hSetEncoding stdin latin1 >>  hSetEncoding stdout latin1 >>
+  hGetContents stdin >>=
+  either error (hPutStr stdout . compileToC) . readProgram
+ 
