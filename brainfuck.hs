@@ -1,15 +1,40 @@
+-- This is an interpreter for the brainfuck programming language.
+
+-- To read this program, I assume only that you can read a very modest amount of
+-- the C programming language, the relevant excerpt of which is on Wikipedia,
+-- and that you are moderately proficient as a programmer in Haskell.
+-- I assume no knowledge of programming language implementations, and have
+-- relatively little such knowledge myself.
+
+-- TODO: translate this program into idiomatic Agda, and for any case that is
+-- now handled as an allegedly impossible call to 'error' (i.e. bottom), provide
+-- a static guarantee that it does not occur, using dependent types.
+
 module Brainfuck where
 
-import Control.Monad.Error () -- instance Monad Either String
-import Data.ByteString     (hGet, hPutStr, singleton, unpack)
-import Data.List           (elemIndex)
-import Data.Word           (Word8)
-import System.IO           (hSetEncoding, latin1, stdin, stdout)
-import System.Environment  (getArgs)
+import Prelude hiding (putStr, repeat)
+
+import Data.ByteString (hGet, putStr, singleton, unpack)
+import Data.List       (elemIndex)
+import Data.Stream     (Stream(Cons), repeat)
+import Data.Word       (Word8)
+import System.IO       (stdin)
 
 
--- see http://learnyouahaskell.com/zippers
-type Zipper a = ([a], a, [a])
+-- If you are unfamiliar with brainfuck, see
+-- https://en.wikipedia.org/wiki/Brainfuck#Commands
+-- and in particular, the second table gives a direct translation of the entire
+-- language into C. Read that, and then read this program, and you understand
+-- a very simple model of how a universal computing machine can work.
+
+-- If you are unfamiliar with zippers, for an introduction see
+-- http://learnyouahaskell.com/zippers
+
+-- A zipper built of a definitely infinite (NOT possibly infinite) linked list
+type InfiniteZipper a = (Stream a, a, Stream a)
+
+-- This is possibly infinite, but we only use it as finite in this program.
+type FiniteZipper a = ([a], a, [a])
 
 -- from Wikipedia: https://en.wikipedia.org/wiki/Brainfuck
 -- "The brainfuck language uses a simple machine model consisting of the program
@@ -19,61 +44,76 @@ type Zipper a = ([a], a, [a])
 -- (most often connected to a keyboard and a monitor respectively, and using
 -- the ASCII character encoding)."
 
--- a Zipper is a natural model for brainfuck's instruction and data pointers:
--- the current instruction or byte respectively is the focus
-type Program  = Zipper Char
-type Memory   = Zipper Word8
+-- A Zipper is a natural model for brainfuck's instruction and data pointers:
+-- the current instruction or byte respectively is the focus.
 
-goRight :: Zipper a ->     Zipper a
-goRight    (ls, x, r:rs) = (x:ls, r, rs)
-goRight    (_ , _, []  ) = error "bug: this should never occur because in the \
-                                  \Program Zipper, when we reach this case, \
-                                  \we end execution; and in the Memory Zipper, \
-                                  \memory is infinite. So this is impossible."
+-- Memory is a tape, infinite in both directions, where each cell is one byte.
+-- So we diverge from the specification that the data pointer is initialized
+-- to the leftmost byte of some array. I think this is more elegant.
+type Memory = InfiniteZipper Word8
 
--- below, readProgram guarantees that a Right Program is well-formed, i.e. that
+-- Programs are finite lists of instructions.
+-- All but eight characters are simply ignored as comments.
+type Program = FiniteZipper Char
+
+
+-- Here are the two basic functions our interpreter will use for manipulating
+-- the program which is its input. Later we will see two more advanced ones.
+
+-- Below, readProgram guarantees that a Right Program is well-formed, i.e. that
 -- there are an equal number of '[' and ']', with a '[' always preceding a ']'.
 -- As the only control flow in a brainfuck program is to increment the
 -- instruction pointer or conditionally jump between brackets, it is impossible
 -- for a well-formed Program to attempt to go left past the beginning of the
--- Program. However, a well-formed Program might illegally attempt to move the
--- data pointer further left than the start of memory. We handle this exception.
-goLeft :: Zipper a ->     Either String (Zipper a)
-goLeft    (l:ls, x, rs) = Right (ls, l, x:rs)
-goLeft    ([]  , _, _ ) = Left "illegal: cannot decrement data pointer when \
-                                \it is pointing at cell 0 of memory"
+-- Program, or go right past the end of the Program.
+-- So in the second case we call to error because this is impossible.
+
+-- A question: would it still be possible to give a similar static guarantee for
+-- a programming language with a notion of self-modifying code? (This is
+-- impossible in brainfuck; the program can only operate on the memory tape.)
+
+goRight :: Program      -> Program
+goRight    (ls, x, r:rs) = (x:ls, r, rs)
+goRight    (_ , _, [] )  = error "bug: this should never occur because in \
+                                 \'execute', when we reach this case, \
+                                 \we end execution."
+
+goLeft :: Program      -> Program
+goLeft    (l:ls, x, rs) = (ls, l, x:rs)
+goLeft    ([],   _, _)  = error "bug: this should never occur because \
+                                 \readProgram guarantees that the input has \
+                                 \no syntax errors. So we should only move \
+                                 \right or jump between brackets."
 
 
 -- below follow the eight commands of the brainfuck language
+
 -- (>): increment the data pointer (to point to the next cell to the right)
--- always succeeds because there is an infinite space of memory to the right
-incrementDataPointer :: Memory -> Memory
-incrementDataPointer = goRight
+incrementDataPointer :: Memory              -> Memory
+incrementDataPointer    (ls, x, r `Cons` rs) = (x `Cons` ls, r, rs)
 
 -- (<): decrement the data pointer (to point to the next cell to the left)
--- Left String if program decrements data pointer when the data pointer (i.e.
--- the focus of the Memory Zipper) is focused on cell 0; Right Memory otherwise
-decrementDataPointer :: Memory -> Either String Memory
-decrementDataPointer = goLeft
+decrementDataPointer :: Memory              -> Memory
+decrementDataPointer    (l `Cons` ls, x, rs) = (ls, l, x `Cons` rs)
 
 -- (+): increment the byte at the data pointer
 -- byte arithmetic is modulo 256; overflow is not an error
-incrementByte :: Memory ->     Memory
+incrementByte :: Memory     -> Memory
 incrementByte    (ls, b, rs) = (ls, b+1, rs)
 
 -- (-): decrement the byte at the data pointer
 -- byte arithmetic is modulo 256; overflow is not an error
-decrementByte :: Memory ->     Memory
+decrementByte :: Memory     -> Memory
 decrementByte    (ls, b, rs) = (ls, b-1, rs)
 
 -- (.): output the byte at the data pointer
-output :: Memory ->   IO ()
-output    (_, b, _) = hPutStr stdout . singleton $ b
+output :: Memory   -> IO ()
+output    (_, b, _) = putStr $ singleton b
 
 -- (,): accept 1 byte of input; store its value in the byte at the data pointer
 -- if you enter multiple bytes when the program is expecting just one, the
 -- other bytes remain in the buffer, and will be passed to future calls to ','
-input :: Memory ->    IO Memory
+input :: Memory    -> IO Memory
 input   (ls, _, rs) = hGet stdin 1 >>= \ b -> case unpack b of
   [byte] -> return (ls, byte, rs)
   _      -> error "could not read a byte of input"
@@ -91,16 +131,17 @@ readProgramErrorMessage = "jump instruction blew up because of a bug \
 -- Program zipper) FORWARD to the command AFTER the matching ']' command.
 -- If the byte at the data pointer is nonzero, then this function simply
 -- increments the instruction pointer forward to the next command.
-jumpIfZero :: Memory -> Program -> Program
-jumpIfZero    (_, x, _) program  = case x of 0 -> jumpPast 0 program
-                                             _ -> goRight program
-  where jumpPast :: Int -> Program ->         Program
-        jumpPast    _           (_, _, [] ) = error readProgramErrorMessage
-        jumpPast    count  prog@(_, _, r:_) = case (r, count) of
-          (']', 0) -> goRight $ goRight prog -- go just past the matching brace
-          (']', _) -> jumpPast (count - 1) (goRight prog)
-          ('[', _) -> jumpPast (count + 1) (goRight prog)
-          _        -> jumpPast count       (goRight prog)
+loopL :: Memory -> Program -> Program
+loopL    (_, x, _) program  = case x of 0 -> jumpPast 0 program
+                                        _ -> goRight program
+  where
+    jumpPast :: Int -> Program ->         Program
+    jumpPast    _           (_, _, [] ) = error readProgramErrorMessage
+    jumpPast    count  prog@(_, _, r:_) = case (r, count) of
+      (']', 0) -> goRight $ goRight prog -- go just past the matching brace
+      (']', _) -> jumpPast (count - 1) (goRight prog)
+      ('[', _) -> jumpPast (count + 1) (goRight prog)
+      _        -> jumpPast count       (goRight prog)
 
 -- (]): If the byte at the data pointer (i.e. the focus of the Memory zipper) is
 -- zero, then this function simply increments the instruction pointer (i.e. the
@@ -112,103 +153,74 @@ jumpIfZero    (_, x, _) program  = case x of 0 -> jumpPast 0 program
 -- It is possible to implement this behavior as an unconditional jump back to
 -- the corresponding left bracket; but then, if the byte at the data pointer is
 -- zero, the program will unnecessarily jump twice, which is inefficient.
-stepIfZero :: Memory -> Program -> Program
-stepIfZero    (_, x, _) program  = case x of 0 -> goRight program
-                                             _ -> jumpBack 0 program
-  where jumpBack :: Int -> Program ->         Program
-        jumpBack    _           ([] , _, _) = error readProgramErrorMessage
-        jumpBack    count  prog@(l:_, _, _) = case (l, count) of
-          ('[', 0) -> prog -- we are already just past the matching brace
-          ('[', _) -> jumpBack (count - 1) (goLeftOrDie prog)
-          (']', _) -> jumpBack (count + 1) (goLeftOrDie prog)
-          _        -> jumpBack count       (goLeftOrDie prog)
-        -- readProgram guarantees that there are a matching number of brackets,
-        -- with a '[' always preceding a ']', so the error is impossible unless
-        -- there is a bug in readProgram, since we won't attempt to goLeft past
-        -- the beginning of a program that satisfies this guarantee
-        goLeftOrDie :: Program -> Program
-        goLeftOrDie = either (error readProgramErrorMessage) id . goLeft
-
-
--- Done implementing brainfuck commands. This is the heart of the interpreter.
-execute :: Memory -> Program ->         IO (Maybe String)
-execute    _              (_, _, [] ) = return Nothing -- end legal program
-execute    mem       prog@(_, i, _:_) =
-  let step :: (Memory  -> Either String Memory ) -> Memory  ->
-              (Program -> Program)               -> Program -> IO (Maybe String)
-  -- At every step, try to update the memory. If that fails, pass the exception
-  -- to the user. (The only possible failure is in decrementDataPointer: in many
-  -- programs which read input, it is impossible to perform a static check to
-  -- guarantee that the program does not attempt to move the data pointer left
-  -- past cell 0 of Memory. No other exception is possible; all other invalid
-  -- programs are rejected by readProgram, and will never be passed to execute.
-  -- If updating memory succeeds, then update the program and continue execution
-  -- with the updated memory and program. (Note that, as explained in comments
-  -- above, readProgram guarantees that our programs are well-formed, and
-  -- updating a well-formed program cannot fail.)
-  -- Repeat until we encounter an exception or reach the end of a legal program.
-      step updateMemory m updateProgram p =
-        either (return . Just) (flip execute (updateProgram p)) (updateMemory m)
-  in case i of
-    '>' -> step (return . incrementDataPointer) mem    goRight          prog
-    '<' -> step decrementDataPointer            mem    goRight          prog
-    '+' -> step (return . incrementByte)        mem    goRight          prog
-    '-' -> step (return . decrementByte)        mem    goRight          prog
-    '.' -> output mem >>
-           step return                          mem    goRight          prog
-    ',' -> input mem >>= \ newMem ->
-           step return                          newMem goRight          prog
-    '[' -> step return                          mem    (jumpIfZero mem) prog
-    ']' -> step return                          mem    (stepIfZero mem) prog
-    _   -> step return                          mem    goRight          prog
+loopR :: Memory -> Program -> Program
+loopR    (_, x, _) program  = case x of 0 -> goRight program
+                                        _ -> jumpBack 0 program
+  where
+    jumpBack :: Int -> Program         -> Program
+    jumpBack    _           ([] , _, _) = error readProgramErrorMessage
+    jumpBack    count  prog@(l:_, _, _) = case (l, count) of
+      ('[', 0) -> prog -- we are already just past the matching brace
+      ('[', _) -> jumpBack (count - 1) (goLeft prog)
+      (']', _) -> jumpBack (count + 1) (goLeft prog)
+      _        -> jumpBack count       (goLeft prog)
 
 
 -- In the first pattern, the empty program is legal, and results in a no-op.
--- In the second pattern, we add a dummy pattern to ensure we execute the final
--- real instruction. This is necessary because in `execute` above,
--- end of program is signified by an empty list to the right of the focus
--- of the Zipper. But the focus is the current instruction, which must be
--- executed even if no instructions follow it.
+-- In the second pattern, we add a dummy instruction to ensure we perform the
+-- final real instruction. This is necessary because in `interpret` and
+-- `compile` below, end of program is signified by an empty list to the right of
+-- the focus of the Zipper. But the focus is the current instruction, which must
+-- be executed regardless of whether any more instructions follow it.
 -- Before that, we check that the input is well-formed by ensuring that there is
 -- an equal number of '[' and ']', and that every ']' is preceded by a '['.
-readProgram :: String ->     Either String Program
-readProgram []             = Right (undefined, undefined, [])
-readProgram program@(i:is) = case brackets of
-  Left  index    -> Left $ "Illegal program: ']' at character " ++ show index ++
-                           " of input, before any matching '['"
+readProgram :: String        -> Either String Program
+readProgram    ""             = Right (undefined, undefined, "")
+readProgram    program@(i:is) = case brackets of
+  Left  index   -> Left $ "Illegal program: ']' at character " ++ show index ++
+                          " of input program, before any matching '['"
   Right n
     | n < 0     -> error "bug: should be impossible because firstMismatched \
                          \should already catch the case of more ']' than '['"
     | n > 0     -> Left $ "Illegal program: " ++ show n ++ " more '[' than ']'"
     | otherwise -> Right ([], i, is ++ "\0")
-
   where
     brackets :: Either Int Int
-    brackets = let runningBracketCount :: [Int]
-                   runningBracketCount =  scanl (flip countBrackets) 0 program
-                   firstMismatched     :: Maybe Int
-                   firstMismatched     =  (-1) `elemIndex` runningBracketCount
-               in  maybe (Right $ last runningBracketCount) Left firstMismatched
+    brackets = maybe (Right $ last runningBracketCount) Left firstMismatched
+    
+    firstMismatched     :: Maybe Int
+    firstMismatched     =  (-1) `elemIndex` runningBracketCount
+
+    runningBracketCount :: [Int]
+    runningBracketCount =  scanl (flip countBrackets) 0 program
+
     countBrackets :: Char -> Int -> Int
     countBrackets c = case c of
       '[' -> (+ 1)
       ']' -> subtract 1
       _   -> id
 
--- brainfuck's specification mandates "at least" 30000 bytes of memory.
--- We implement an infinite memory space, which is trivial thanks to laziness.
+
+-- The heart of the interpreter.
+interpret :: Memory -> Program            -> IO ()
+interpret    _                 (_, _, "" ) = return () -- end legal program
+interpret    memory    program@(_, i, _:_) = case i of
+  '>' -> interpret (incrementDataPointer memory)      (goRight program)
+  '<' -> interpret (decrementDataPointer memory)      (goRight program)
+  '+' -> interpret (incrementByte memory)             (goRight program)
+  '-' -> interpret (decrementByte memory)             (goRight program)
+  '.' -> output memory >>            interpret memory (goRight program)
+  ',' -> input memory >>= \newMem -> interpret newMem (goRight program)
+  '[' -> interpret memory                             (loopL memory program)
+  ']' -> interpret memory                             (loopL memory program)
+  _   -> interpret memory                             (goRight program)
+
+
 initialMemory :: Memory
-initialMemory = ([], 0, repeat 0)
+initialMemory = (repeat 0, 0, repeat 0)
 
--- If program is well-formed, execute it with the initial memory of all zeroes.
--- If program is malformed, display the problem to the user, and exit.
-run :: String -> IO (Maybe String)
-run = either (return . Just) (execute initialMemory) . readProgram
+run :: String -> IO ()
+run = either putStrLn (interpret initialMemory) . readProgram
 
-
---`hSetEncoding _ latin1` enforces that we accept only ASCII bytes, as specified
 main :: IO ()
-main = getArgs >>= \ args -> case args of
-  []         -> putStrLn "Usage: runhaskell brainfuck.hs [brainfuck source file]"
-  filename:_ -> hSetEncoding stdin latin1 >> hSetEncoding stdout latin1 >>
-    readFile filename >>= run >>= maybe (return ()) putStrLn
+main = getContents >>= run
