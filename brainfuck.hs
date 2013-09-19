@@ -3,8 +3,7 @@
 -- To read this program, I assume only that you can read a very modest amount of
 -- the C programming language, the relevant excerpt of which is on Wikipedia,
 -- and that you are moderately proficient as a programmer in Haskell.
--- I assume no knowledge of programming language implementations, and have
--- relatively little such knowledge myself.
+-- I assume no knowledge of brainfuck or programming language implementations.
 
 -- TODO: translate this program into idiomatic Agda, and for any case that is
 -- now handled as an allegedly impossible call to 'error' (i.e. bottom), provide
@@ -27,15 +26,6 @@ import System.IO       (stdin)
 -- language into C. Read that, and then read this program, and you understand
 -- a very simple model of how a universal computing machine can work.
 
--- If you are unfamiliar with zippers, for an introduction see
--- http://learnyouahaskell.com/zippers
-
--- A zipper built of a definitely infinite (NOT possibly infinite) linked list
-type InfiniteZipper a = (Stream a, a, Stream a)
-
--- This is possibly infinite, but we only use it as finite in this program.
-type FiniteZipper a = ([a], a, [a])
-
 -- from Wikipedia: https://en.wikipedia.org/wiki/Brainfuck
 -- "The brainfuck language uses a simple machine model consisting of the program
 -- and instruction pointer, as well as an array of at least 30,000 byte cells
@@ -46,15 +36,19 @@ type FiniteZipper a = ([a], a, [a])
 
 -- A Zipper is a natural model for brainfuck's instruction and data pointers:
 -- the current instruction or byte respectively is the focus.
+-- If you are unfamiliar with zippers, for an introduction see
+-- http://learnyouahaskell.com/zippers
+
 
 -- Memory is a tape, infinite in both directions, where each cell is one byte.
 -- So we diverge from the specification that the data pointer is initialized
 -- to the leftmost byte of some array. I think this is more elegant.
-type Memory = InfiniteZipper Word8
+type Memory = (Stream Word8, Word8, Stream Word8)
 
 -- Programs are finite lists of instructions.
 -- All but eight characters are simply ignored as comments.
-type Program = FiniteZipper Char
+-- This is possibly infinite, but we only use it as finite in this program.
+type Program = ([Char], Char, [Char])
 
 
 -- Here are the two basic functions our interpreter will use for manipulating
@@ -81,9 +75,9 @@ goRight    (_ , _, [] )  = error "bug: this should never occur because in \
 goLeft :: Program      -> Program
 goLeft    (l:ls, x, rs) = (ls, l, x:rs)
 goLeft    ([],   _, _)  = error "bug: this should never occur because \
-                                 \readProgram guarantees that the input has \
-                                 \no syntax errors. So we should only move \
-                                 \right or jump between brackets."
+                                \readProgram guarantees that the input has \
+                                \no syntax errors. So we should only move \
+                                \right or jump between brackets."
 
 
 -- below follow the eight commands of the brainfuck language
@@ -188,17 +182,16 @@ readProgram    program@(i:is) = case brackets of
     brackets :: Either Int Int
     brackets = maybe (Right $ last runningBracketCount) Left firstMismatched
     
-    firstMismatched     :: Maybe Int
-    firstMismatched     =  (-1) `elemIndex` runningBracketCount
+    firstMismatched :: Maybe Int
+    firstMismatched = (-1) `elemIndex` runningBracketCount
 
     runningBracketCount :: [Int]
-    runningBracketCount =  scanl (flip countBrackets) 0 program
+    runningBracketCount = scanl (flip countBrackets) 0 program
 
     countBrackets :: Char -> Int -> Int
-    countBrackets c = case c of
-      '[' -> (+ 1)
-      ']' -> subtract 1
-      _   -> id
+    countBrackets '[' = (+1)
+    countBrackets ']' = subtract 1
+    countBrackets _   = id
 
 
 -- The heart of the interpreter.
@@ -212,7 +205,7 @@ interpret    memory    program@(_, i, _:_) = case i of
   '.' -> output memory >>            interpret memory (goRight program)
   ',' -> input memory >>= \newMem -> interpret newMem (goRight program)
   '[' -> interpret memory                             (loopL memory program)
-  ']' -> interpret memory                             (loopL memory program)
+  ']' -> interpret memory                             (loopR memory program)
   _   -> interpret memory                             (goRight program)
 
 
