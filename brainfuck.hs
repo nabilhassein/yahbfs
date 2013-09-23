@@ -1,14 +1,3 @@
--- This is an interpreter for the brainfuck programming language.
-
--- To read this program, I assume only that you can read a very modest amount of
--- the C programming language, the relevant excerpt of which is on Wikipedia,
--- and that you are moderately proficient as a programmer in Haskell.
--- I assume no knowledge of brainfuck or programming language implementations.
-
--- TODO: translate this program into idiomatic Agda, and for any case that is
--- now handled as an allegedly impossible call to 'error' (i.e. bottom), provide
--- a static guarantee that it does not occur, using dependent types.
-
 module Brainfuck where
 
 import Prelude hiding (putStr, repeat)
@@ -17,7 +6,7 @@ import Data.ByteString (hGet, putStr, singleton, unpack)
 import Data.List       (elemIndex)
 import Data.Stream     (Stream(Cons), repeat)
 import Data.Word       (Word8)
-import System.IO       (stdin)
+import System.IO       (hPutStrLn, stdin, stderr)
 
 
 -- If you are unfamiliar with brainfuck, see
@@ -62,33 +51,29 @@ type Program = ([Char], Char, [Char])
 -- Program, or go right past the end of the Program.
 -- So in the second case we call to error because this is impossible.
 
--- A question: would it still be possible to give a similar static guarantee for
--- a programming language with a notion of self-modifying code? (This is
--- impossible in brainfuck; the program can only operate on the memory tape.)
-
 goRight :: Program      -> Program
 goRight    (ls, x, r:rs) = (x:ls, r, rs)
-goRight    (_ , _, [] )  = error "bug: this should never occur because in \
-                                 \'execute', when we reach this case, \
+goRight    (_ , _, [] )  = error "goRight bug: this should never occur because \
+                                 \in 'interpret', when we reach this case, \
                                  \we end execution."
 
 goLeft :: Program      -> Program
 goLeft    (l:ls, x, rs) = (ls, l, x:rs)
-goLeft    ([],   _, _)  = error "bug: this should never occur because \
+goLeft    ([],   _, _)  = error "goLeft bug: this should never occur because \
                                 \readProgram guarantees that the input has \
                                 \no syntax errors. So we should only move \
                                 \right or jump between brackets."
 
 
--- below follow the eight commands of the brainfuck language
+-- Below follow the eight commands of the brainfuck language.
 
 -- (>): increment the data pointer (to point to the next cell to the right)
-incrementDataPointer :: Memory              -> Memory
-incrementDataPointer    (ls, x, r `Cons` rs) = (x `Cons` ls, r, rs)
+incrementDataPointer :: Memory            -> Memory
+incrementDataPointer    (ls, x, Cons r rs) = (Cons x ls, r, rs)
 
 -- (<): decrement the data pointer (to point to the next cell to the left)
-decrementDataPointer :: Memory              -> Memory
-decrementDataPointer    (l `Cons` ls, x, rs) = (ls, l, x `Cons` rs)
+decrementDataPointer :: Memory            -> Memory
+decrementDataPointer    (Cons l ls, x, rs) = (ls, l, Cons x rs)
 
 -- (+): increment the byte at the data pointer
 -- byte arithmetic is modulo 256; overflow is not an error
@@ -110,15 +95,14 @@ output    (_, b, _) = putStr $ singleton b
 input :: Memory    -> IO Memory
 input   (ls, _, rs) = hGet stdin 1 >>= \ b -> case unpack b of
   [byte] -> return (ls, byte, rs)
-  _      -> error "could not read a byte of input"
+  _      -> error "input: could not read a byte of input"
 
 -- not a brainfuck command; see readProgram, and usage in next 2 commands, below
-readProgramErrorMessage :: String
-readProgramErrorMessage = "jump instruction blew up because of a bug \
-                           \in readProgram: this should be impossible because \
-                           \readProgram should only accept well-formed \
-                           \programs, i.e. programs with a matching number of \
-                           \brackets, with a '[' always preceding a ']'"
+readProgramError :: String
+readProgramError = "instruction blew up because of a bug in readProgram: \
+                   \this should be impossible because readProgram should only \ 
+                   \accept well-formed programs, i.e. programs with a matching \
+                   \number of brackets, with a '[' always preceding a ']'"
 
 -- ([): If the byte at the data pointer (i.e. the focus of the Memory zipper) is
 -- zero, then this function jumps the instruction pointer (i.e. the focus of the
@@ -129,8 +113,8 @@ loopL :: Memory -> Program -> Program
 loopL    (_, x, _) program  = case x of 0 -> jumpPast 0 program
                                         _ -> goRight program
   where
-    jumpPast :: Int -> Program ->         Program
-    jumpPast    _           (_, _, [] ) = error readProgramErrorMessage
+    jumpPast :: Int -> Program         -> Program
+    jumpPast    _           (_, _, [] ) = error $ "loopL: " ++ readProgramError
     jumpPast    count  prog@(_, _, r:_) = case (r, count) of
       (']', 0) -> goRight $ goRight prog -- go just past the matching brace
       (']', _) -> jumpPast (count - 1) (goRight prog)
@@ -152,7 +136,7 @@ loopR    (_, x, _) program  = case x of 0 -> goRight program
                                         _ -> jumpBack 0 program
   where
     jumpBack :: Int -> Program         -> Program
-    jumpBack    _           ([] , _, _) = error readProgramErrorMessage
+    jumpBack    _           ([] , _, _) = error $ "loopR: " ++ readProgramError
     jumpBack    count  prog@(l:_, _, _) = case (l, count) of
       ('[', 0) -> prog -- we are already just past the matching brace
       ('[', _) -> jumpBack (count - 1) (goLeft prog)
@@ -161,20 +145,20 @@ loopR    (_, x, _) program  = case x of 0 -> goRight program
 
 
 -- In the first pattern, the empty program is legal, and results in a no-op.
--- In the second pattern, we add a dummy instruction to ensure we perform the
--- final real instruction. This is necessary because in `interpret` and
--- `compile` below, end of program is signified by an empty list to the right of
--- the focus of the Zipper. But the focus is the current instruction, which must
--- be executed regardless of whether any more instructions follow it.
--- Before that, we check that the input is well-formed by ensuring that there is
--- an equal number of '[' and ']', and that every ']' is preceded by a '['.
+-- In the last case of the second pattern, we add a dummy instruction to ensure 
+-- we perform the final real instruction. This is necessary because in 
+-- `interpret` below, end of program is signified by an empty list to the right
+-- of the focus of the Zipper. But the focus is the current instruction, which
+-- must be executed regardless of whether any more instructions follow it.
+-- Before that, we check that the input is well-formed by ensuring that there
+-- are an equal number of '[' and ']', and that every ']' is preceded by a '['.
 readProgram :: String        -> Either String Program
 readProgram    ""             = Right (undefined, undefined, "")
 readProgram    program@(i:is) = case brackets of
   Left  index   -> Left $ "Illegal program: ']' at character " ++ show index ++
                           " of input program, before any matching '['"
   Right n
-    | n < 0     -> error "bug: should be impossible because firstMismatched \
+    | n < 0     -> error "readProgram: invariant violated: firstMismatched \
                          \should already catch the case of more ']' than '['"
     | n > 0     -> Left $ "Illegal program: " ++ show n ++ " more '[' than ']'"
     | otherwise -> Right ([], i, is ++ "\0")
@@ -189,14 +173,14 @@ readProgram    program@(i:is) = case brackets of
     runningBracketCount = scanl (flip countBrackets) 0 program
 
     countBrackets :: Char -> Int -> Int
-    countBrackets '[' = (+1)
-    countBrackets ']' = subtract 1
-    countBrackets _   = id
+    countBrackets    '[' = (+1)
+    countBrackets    ']' = subtract 1
+    countBrackets    _   = id
 
 
 -- The heart of the interpreter.
 interpret :: Memory -> Program            -> IO ()
-interpret    _                 (_, _, "" ) = return () -- end legal program
+interpret    _                 (_, _, "" ) = return () -- end of program
 interpret    memory    program@(_, i, _:_) = case i of
   '>' -> interpret (incrementDataPointer memory)      (goRight program)
   '<' -> interpret (decrementDataPointer memory)      (goRight program)
@@ -213,7 +197,7 @@ initialMemory :: Memory
 initialMemory = (repeat 0, 0, repeat 0)
 
 run :: String -> IO ()
-run = either putStrLn (interpret initialMemory) . readProgram
+run = either (hPutStrLn stderr) (interpret initialMemory) . readProgram
 
 main :: IO ()
 main = getContents >>= run
