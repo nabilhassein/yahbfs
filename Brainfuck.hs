@@ -1,19 +1,17 @@
-module Brainfuck where
-
-import Prelude hiding (putStr, repeat)
-
-import Data.ByteString (hGet, putStr, singleton, unpack)
-import Data.List       (elemIndex)
-import Data.Stream     (Stream(Cons), repeat)
-import Data.Word       (Word8)
-import System.IO       (hPutStrLn, stdin, stderr)
-
-
 -- If you are unfamiliar with brainfuck, see
 -- https://en.wikipedia.org/wiki/Brainfuck#Commands
 -- and in particular, the second table gives a direct translation of the entire
 -- language into C. Read that, and then read this program, and you understand
 -- a very simple model of how a universal computing machine can work.
+
+module Brainfuck where
+
+import Prelude  hiding (putStr, repeat)
+import Data.ByteString (hGet, putStr, singleton, unpack)
+import Data.List       (elemIndex)
+import Data.Stream     (Stream(Cons), repeat)
+import Data.Word       (Word8)
+import System.IO       (hPutStrLn, stdin, stderr)
 
 -- from Wikipedia: https://en.wikipedia.org/wiki/Brainfuck
 -- "The brainfuck language uses a simple machine model consisting of the program
@@ -27,7 +25,6 @@ import System.IO       (hPutStrLn, stdin, stderr)
 -- the current instruction or byte respectively is the focus.
 -- If you are unfamiliar with zippers, for an introduction see
 -- http://learnyouahaskell.com/zippers
-
 
 -- Memory is a tape, infinite in both directions, where each cell is one byte.
 -- So we diverge from the specification that the data pointer is initialized
